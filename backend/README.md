@@ -27,13 +27,30 @@ running server, not just in-process. Details:
 - Password reset / email verification tokens are single-use, short-lived, and stored only as
   a SHA-256 digest (spec §14)
 
+**Incidents** (increment 3): `GET /incidents`, `GET /incidents/summary`, `GET /incidents/:id`,
+`PATCH /incidents/:id/status`, `PATCH /incidents/:id/assign`, `POST /incidents/:id/notes` — the
+first domain module, establishing the pattern the rest (alerts, investigations, users, ...)
+follow:
+
+- Every repository method takes `organizationId` as a required argument and enforces it at
+  the data-access layer (spec §20) — `getById` returns the same "not found" for a genuinely
+  missing ID and an ID that belongs to another organization, so changing the ID in the URL
+  can't be used to probe what exists elsewhere (spec §19, verified by an explicit
+  register-a-new-org-then-probe test)
+- Assigning an incident validates the assignee belongs to the same organization too — the
+  object-level check extends to referenced resources, not just the one in the URL
+  path
+- Note authorship is resolved from the authenticated session server-side; a client-supplied
+  author name in the request body is ignored, not trusted
+- RBAC per-route via the existing `requirePermission`, exercised against every seeded role
+
 **Not yet built** (later increments of this same phase, or later phases entirely — nothing
 below is silently faked):
 
-- Domain routes (incidents, alerts, users, ...) — next increment
-- A real database — Phase 5. The user repository is in-memory, behind the same
-  `UserRepository` interface a MongoDB implementation will fulfill later; nothing above that
-  seam needs to change when it does.
+- Remaining domain routes (alerts, investigations, threat intel, users, reports, audit logs,
+  MITRE, threat graph) — next increments, following the incidents pattern
+- A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
+  implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw
   token back in the API response when `NODE_ENV !== production` (never in production) so the
   flow is testable end to end. This is a real, working token — just delivered by a different

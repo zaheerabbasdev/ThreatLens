@@ -12,24 +12,36 @@ import { createAuthController } from "./auth/auth.controller.js";
 import { AuthService } from "./auth/auth.service.js";
 import { InMemoryUserRepository } from "./repositories/user.repository.js";
 import type { UserRepository } from "./repositories/user.repository.js";
+import { InMemoryIncidentRepository } from "./repositories/incident.repository.js";
+import type { IncidentRepository } from "./repositories/incident.repository.js";
+import { createIncidentsRouter } from "./incidents/incidents.routes.js";
+import { createIncidentsController } from "./incidents/incidents.controller.js";
+import { IncidentsService } from "./incidents/incidents.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
   userRepository: UserRepository;
+  incidentRepository: IncidentRepository;
 }
 
 /**
- * Defaults to a fresh, unseeded in-memory repository — fine for the health
- * check and for tests that construct/seed their own instance explicitly.
- * server.ts passes a real (seeded) one in for actual runs.
+ * Defaults to fresh, unseeded in-memory repositories — fine for the health
+ * check and for tests that construct/seed their own instances explicitly.
+ * server.ts passes real (seeded) ones in for actual runs.
  */
 export function createApp(deps: Partial<AppDependencies> = {}) {
   const userRepository = deps.userRepository ?? new InMemoryUserRepository();
+  const incidentRepository = deps.incidentRepository ?? new InMemoryIncidentRepository();
 
   const authService = new AuthService(userRepository);
   const authController = createAuthController(authService);
   const authRouter = createAuthRouter(authController);
-  const apiV1Router = createApiV1Router({ authRouter });
+
+  const incidentsService = new IncidentsService(incidentRepository, userRepository);
+  const incidentsController = createIncidentsController(incidentsService);
+  const incidentsRouter = createIncidentsRouter(incidentsController);
+
+  const apiV1Router = createApiV1Router({ authRouter, incidentsRouter });
 
   const app = express();
 

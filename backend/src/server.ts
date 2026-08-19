@@ -2,13 +2,17 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { logger } from "./utils/logger.js";
 import { InMemoryUserRepository, seedDemoUsers } from "./repositories/user.repository.js";
+import { InMemoryIncidentRepository } from "./repositories/incident.repository.js";
+import { seedDemoIncidents } from "./repositories/incident.seed.js";
 
-const userRepository = new InMemoryUserRepository();
-// Phase 5 replaces this with a real database — nothing above this line's
+// Phase 5 replaces these with a real database — nothing above this line's
 // call site needs to change when that happens (AppDependencies is the seam).
+const userRepository = new InMemoryUserRepository();
 await seedDemoUsers(userRepository);
+const incidentRepository = new InMemoryIncidentRepository();
+seedDemoIncidents(incidentRepository);
 
-const app = createApp({ userRepository });
+const app = createApp({ userRepository, incidentRepository });
 
 const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT, env: env.NODE_ENV }, "ThreatLens backend listening");
