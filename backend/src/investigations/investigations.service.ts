@@ -6,6 +6,7 @@ import type {
 } from "../repositories/investigation.repository.js";
 import type { IncidentRepository } from "../repositories/incident.repository.js";
 import type { UserRepository } from "../repositories/user.repository.js";
+import type { IndicatorRepository } from "../repositories/indicator.repository.js";
 import type { Investigation, InvestigationNote, InvestigationTimelineEvent } from "../types/investigation.js";
 import type { PaginatedResult, WorkflowStatus } from "../types/common.js";
 import { logger } from "../utils/logger.js";
@@ -25,6 +26,7 @@ export class InvestigationsService {
     private readonly investigations: InvestigationRepository,
     private readonly incidents: IncidentRepository,
     private readonly users: UserRepository,
+    private readonly indicators: IndicatorRepository,
   ) {}
 
   list(organizationId: string, params: InvestigationListParams): Promise<PaginatedResult<Investigation>> {
@@ -154,13 +156,6 @@ export class InvestigationsService {
     return updated;
   }
 
-  /**
-   * No IndicatorRepository exists yet (that's the Threat Intel module, a
-   * later increment) — linking accepts any indicatorId without an
-   * existence check for now, same permissiveness as the frontend mock.
-   * Once that module exists, this gets the same treatment as
-   * linkIncident above.
-   */
   async linkIndicator(organizationId: string, id: string, indicatorId: string, actorId: string): Promise<Investigation> {
     const actor = await this.requireActor(organizationId, actorId);
     const existing = await this.investigations.getById(organizationId, id);
@@ -168,9 +163,14 @@ export class InvestigationsService {
 
     if (existing.relatedIndicatorIds.includes(indicatorId)) return existing;
 
+    // Same object-level check as linkIncident, now that the Threat Intel
+    // module (and its repository) exists to check against.
+    const indicator = await this.indicators.getById(organizationId, indicatorId);
+    if (!indicator) throw new BadRequestError("That indicator doesn't exist in your organization.");
+
     const updated = await this.investigations.update(organizationId, id, {
       relatedIndicatorIds: [...existing.relatedIndicatorIds, indicatorId],
-      timeline: [...existing.timeline, timelineEvent("Linked indicator", indicatorId, actor.name)],
+      timeline: [...existing.timeline, timelineEvent("Linked indicator", indicator.value, actor.name)],
       updatedAt: new Date().toISOString(),
     });
     if (!updated) throw new NotFoundError("The requested investigation was not found.");

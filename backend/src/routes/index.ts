@@ -13,6 +13,7 @@ export function createApiV1Router(deps: {
   investigationsRouter: Router;
   usersRouter: Router;
   organizationRouter: Router;
+  iocRouter: Router;
 }): Router {
   const router = Router();
   router.use("/health", healthRouter);
@@ -22,5 +23,6 @@ export function createApiV1Router(deps: {
   router.use("/investigations", deps.investigationsRouter);
   router.use("/users", deps.usersRouter);
   router.use("/organization", deps.organizationRouter);
+  router.use("/ioc", deps.iocRouter);
   return router;
 }

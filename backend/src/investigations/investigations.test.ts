@@ -6,6 +6,8 @@ import { InMemoryIncidentRepository } from "../repositories/incident.repository.
 import { seedDemoIncidents } from "../repositories/incident.seed.js";
 import { InMemoryInvestigationRepository } from "../repositories/investigation.repository.js";
 import { seedDemoInvestigations } from "../repositories/investigation.seed.js";
+import { InMemoryIndicatorRepository } from "../repositories/indicator.repository.js";
+import { seedDemoIndicators } from "../repositories/indicator.seed.js";
 
 const DEMO_PASSWORD = "ThreatLens#Demo1";
 
@@ -16,7 +18,9 @@ async function buildApp() {
   seedDemoIncidents(incidentRepository);
   const investigationRepository = new InMemoryInvestigationRepository();
   seedDemoInvestigations(investigationRepository);
-  return createApp({ userRepository, incidentRepository, investigationRepository });
+  const indicatorRepository = new InMemoryIndicatorRepository();
+  seedDemoIndicators(indicatorRepository);
+  return createApp({ userRepository, incidentRepository, investigationRepository, indicatorRepository });
 }
 
 async function loginAs(app: Awaited<ReturnType<typeof buildApp>>, email: string): Promise<string> {
@@ -177,14 +181,27 @@ describe("investigations", () => {
   });
 
   describe("link/unlink indicator", () => {
-    it("links an indicator (no existence check yet — Threat Intel module not built)", async () => {
+    it("links a real indicator from the same organization", async () => {
       const token = await loginAs(app, "diego.alvarez@northwind.test");
       const res = await request(app)
         .post("/api/v1/investigations/inv_1/indicators")
         .set("Authorization", `Bearer ${token}`)
-        .send({ indicatorId: "ind_99" });
+        .send({ indicatorId: "ind_9" }); // not already linked to inv_1
       expect(res.status).toBe(200);
-      expect(res.body.data.relatedIndicatorIds).toContain("ind_99");
+      expect(res.body.data.relatedIndicatorIds).toContain("ind_9");
+      expect(res.body.data.timeline.at(-1)).toMatchObject({
+        title: "Linked indicator",
+        description: "44d88612fea8a8f36de82e1278abb02f", // the indicator's value, not its raw ID
+      });
+    });
+
+    it("rejects linking a nonexistent indicator", async () => {
+      const token = await loginAs(app, "diego.alvarez@northwind.test");
+      const res = await request(app)
+        .post("/api/v1/investigations/inv_1/indicators")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ indicatorId: "does-not-exist" });
+      expect(res.status).toBe(400);
     });
 
     it("unlinks an indicator", async () => {

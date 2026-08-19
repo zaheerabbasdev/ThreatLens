@@ -77,11 +77,29 @@ does, using the submitted organization name (verified by a test that registers, 
   even for an admin — a safety rule beyond what the frontend mock enforces, preventing an
   admin from accidentally locking themselves out with nobody left to reverse it
 
+**Threat Intel / IOCs** (increment 7): `GET /ioc`, `POST /ioc`, `GET /ioc/:id` — IP, domain,
+URL, and hash indicators.
+
+- Real format validation per type on submission (spec §21): IPv4/IPv6 via Node's `net.isIP`,
+  a domain-shape regex, `http(s)`-only URL parsing (rejects `javascript:` and other schemes),
+  and hex-length hash validation that derives the correct algorithm (md5/sha1/sha256) instead
+  of the frontend mock's cruder "64 chars or bust, everything else is md5" guess
+  — none of this is real threat-intel enrichment (that's Phase 7 of the *product* roadmap,
+  external provider lookups); it's just rejecting input that isn't shaped like what it claims
+  to be
+- A freshly submitted indicator starts deliberately unenriched — `severity: "info"`,
+  `confidence: "unverified"`, `riskScore: 0` — matching the frontend mock and the spec's "AI/
+  automation never invents a score" principle; nothing here fabricates confidence it doesn't
+  have
+- Closed a gap from the Investigations increment: `linkIndicator` now validates the indicator
+  actually exists in the caller's org (previously undeferrable, honestly, since no
+  IndicatorRepository existed yet) — same treatment `linkIncident` already had
+
 **Not yet built** (later increments of this same phase, or later phases entirely — nothing
 below is silently faked):
 
-- Remaining domain routes (threat intel, reports, audit logs, MITRE, threat graph) — next
-  increments, following the established pattern
+- Remaining domain routes (reports, audit logs, MITRE, threat graph) — next increments,
+  following the established pattern
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw

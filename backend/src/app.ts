@@ -35,6 +35,11 @@ import { UsersService } from "./users/users.service.js";
 import { createOrganizationRouter } from "./organization/organization.routes.js";
 import { createOrganizationController } from "./organization/organization.controller.js";
 import { OrganizationService } from "./organization/organization.service.js";
+import { InMemoryIndicatorRepository } from "./repositories/indicator.repository.js";
+import type { IndicatorRepository } from "./repositories/indicator.repository.js";
+import { createIOCRouter } from "./threatIntel/ioc.routes.js";
+import { createIOCController } from "./threatIntel/ioc.controller.js";
+import { IOCService } from "./threatIntel/ioc.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -43,6 +48,7 @@ export interface AppDependencies {
   alertRepository: AlertRepository;
   investigationRepository: InvestigationRepository;
   organizationRepository: OrganizationRepository;
+  indicatorRepository: IndicatorRepository;
 }
 
 /**
@@ -56,6 +62,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const alertRepository = deps.alertRepository ?? new InMemoryAlertRepository();
   const investigationRepository = deps.investigationRepository ?? new InMemoryInvestigationRepository();
   const organizationRepository = deps.organizationRepository ?? new InMemoryOrganizationRepository();
+  const indicatorRepository = deps.indicatorRepository ?? new InMemoryIndicatorRepository();
 
   const authService = new AuthService(userRepository, organizationRepository);
   const authController = createAuthController(authService);
@@ -69,7 +76,12 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const alertsController = createAlertsController(alertsService);
   const alertsRouter = createAlertsRouter(alertsController);
 
-  const investigationsService = new InvestigationsService(investigationRepository, incidentRepository, userRepository);
+  const investigationsService = new InvestigationsService(
+    investigationRepository,
+    incidentRepository,
+    userRepository,
+    indicatorRepository,
+  );
   const investigationsController = createInvestigationsController(investigationsService);
   const investigationsRouter = createInvestigationsRouter(investigationsController);
 
@@ -81,6 +93,10 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const organizationController = createOrganizationController(organizationService);
   const organizationRouter = createOrganizationRouter(organizationController);
 
+  const iocService = new IOCService(indicatorRepository);
+  const iocController = createIOCController(iocService);
+  const iocRouter = createIOCRouter(iocController);
+
   const apiV1Router = createApiV1Router({
     authRouter,
     incidentsRouter,
@@ -88,6 +104,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     investigationsRouter,
     usersRouter,
     organizationRouter,
+    iocRouter,
   });
 
   const app = express();
