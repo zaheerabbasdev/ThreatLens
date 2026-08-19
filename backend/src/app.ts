@@ -57,6 +57,12 @@ import type { ReportRepository } from "./repositories/report.repository.js";
 import { createReportRouter } from "./reports/report.routes.js";
 import { createReportController } from "./reports/report.controller.js";
 import { ReportService } from "./reports/report.service.js";
+import { InMemoryThreatActorRepository } from "./repositories/threatActor.repository.js";
+import type { ThreatActorRepository } from "./repositories/threatActor.repository.js";
+import { seedThreatActors } from "./repositories/threatActor.seed.js";
+import { createGraphRouter } from "./threatGraph/graph.routes.js";
+import { createGraphController } from "./threatGraph/graph.controller.js";
+import { GraphService } from "./threatGraph/graph.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -69,6 +75,7 @@ export interface AppDependencies {
   auditLogRepository: AuditLogRepository;
   mitreRepository: MitreRepository;
   reportRepository: ReportRepository;
+  threatActorRepository: ThreatActorRepository;
 }
 
 /**
@@ -79,6 +86,13 @@ export interface AppDependencies {
 function seedMitreRepository(): MitreRepository {
   const repository = new InMemoryMitreRepository();
   seedMitreData(repository);
+  return repository;
+}
+
+/** Same reasoning as seedMitreRepository above — global reference data, pre-seeded by default rather than left blank. */
+function seedThreatActorRepository(): ThreatActorRepository {
+  const repository = new InMemoryThreatActorRepository();
+  seedThreatActors(repository);
   return repository;
 }
 
@@ -96,6 +110,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   // rather than left blank.
   const mitreRepository = deps.mitreRepository ?? seedMitreRepository();
   const reportRepository = deps.reportRepository ?? new InMemoryReportRepository();
+  const threatActorRepository = deps.threatActorRepository ?? seedThreatActorRepository();
 
   // Constructed first — every other service below records through it.
   const auditService = new AuditService(auditLogRepository);
@@ -152,6 +167,10 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const reportController = createReportController(reportService);
   const reportRouter = createReportRouter(reportController);
 
+  const graphService = new GraphService(incidentRepository, indicatorRepository, userRepository, mitreRepository, threatActorRepository);
+  const graphController = createGraphController(graphService);
+  const graphRouter = createGraphRouter(graphController);
+
   const apiV1Router = createApiV1Router({
     authRouter,
     incidentsRouter,
@@ -163,6 +182,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     auditRouter,
     mitreRouter,
     reportRouter,
+    graphRouter,
   });
 
   const app = express();

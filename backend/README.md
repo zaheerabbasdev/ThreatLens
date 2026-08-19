@@ -151,13 +151,39 @@ types (security summary, incident, threat intelligence, risk, activity).
   report reflects the org's data at the moment it was generated, so it's correct for a report
   from when there were more seeded incidents to still quote that original number
 
-**Not yet built** (later increments of this same phase, or later phases entirely — nothing
-below is silently faked):
+**Threat Graph** (increment 11 — the last domain module): `GET /threat-graph`. Confirmed the
+expectation from the previous increment: no new persisted state, just a composition layer
+assembling nodes/edges from repositories that already exist (incidents, indicators, users,
+MITRE techniques, threat actors).
 
-- Threat Graph — the last domain module. Unlike the others, it likely needs no new persisted
-  state of its own: the frontend's graph view is just nodes/edges assembled from
-  incidents/alerts/indicators/users/MITRE data that all already exist server-side now, so this
-  is expected to be a thinner composition layer rather than a new repository.
+- Indicators/incidents/users are the caller's own org data only; MITRE techniques and threat
+  actors are global reference data shown to every org alike (same as the MITRE module)
+- Tenant isolation here falls directly out of how the node set is built, not a separate check:
+  an edge is only added when *both* endpoints are already nodes in the graph, and nodes are
+  only ever populated from org-scoped or genuinely-global data — so a cross-tenant edge is
+  structurally impossible, not merely filtered out. Verified by a test that confirms an
+  outsider org's graph has zero of org_northwind's incident/indicator/user nodes while still
+  correctly showing the shared threat actors
+- Also added `ThreatActor` as a new global reference type (mirrors the frontend's
+  `src/mocks/threatActors.ts`), following the same "seeded once, no organizationId, no
+  create/update in the public interface" pattern as `MitreRepository`
+
+**Phase 3 (Backend architecture and API) is now feature-complete** for the scope defined at
+the start of this phase: auth, RBAC, and all domain modules the frontend expects, each backed
+by real logic (not stubs) and tested end to end. See "Not yet built" below for what's
+deliberately deferred to later phases.
+
+**Not yet built** (later phases — nothing here is silently faked):
+
+- A real database (Phase 5) — every repository above is in-memory behind an interface a
+  MongoDB implementation can fulfill without the service layer changing
+- Real AI/OpenAI calls (Phase 6), real threat-intel provider integrations (Phase 7),
+  anomaly detection (Phase 8), a real correlation/risk engine (Phase 9), response workflows
+  (Phase 10)
+- Backend QA hardening as its own formal pass (Phase 4) — this phase's own increments each
+  included real security work (IDOR guards, tenant isolation, rate limiting, audit trails,
+  non-spoofable actor attribution) rather than deferring all of it, but a dedicated QA pass
+  (broader penetration-style testing, dependency audit, etc.) hasn't happened yet
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw
