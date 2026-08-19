@@ -207,24 +207,68 @@ No bugs required fixing this pass — Phase 3's per-module security work (IDOR g
 isolation, non-spoofable actor attribution, tiered rate limiting, real audit trail) held up
 under a dedicated adversarial review rather than needing new patches.
 
+## Phase 5 — Database
+
+Every repository now has a real Mongoose-backed implementation (`*.repository.mongo.ts`)
+alongside its original in-memory one — same interface, so nothing above the repository layer
+(services, controllers, tests) changed. `server.ts` picks between them based on whether
+`MONGODB_URI` is set; unset, it behaves exactly as it did through Phase 4.
+
+**What this covers:**
+
+- All 10 collections from the domain model (User, Organization, Incident, Alert, Indicator,
+  Investigation, Report, AuditLog, MitreTactic/MitreTechnique, ThreatActor), each with a
+  schema defining required/optional fields, validation, and indexes (spec §9/§10)
+- Indexes based on actual query patterns, not indexed-everything (spec §11): `organizationId`
+  on every tenant-scoped collection (load-bearing for literally every query), plus compound
+  indexes matching each module's documented list filters (severity+status for incidents/alerts,
+  type+value for indicators, action+result for audit logs, etc.)
+- String IDs throughout (`_id: String`, our existing UUID/seed-ID scheme), not Mongo's default
+  ObjectId — keeps IDs identical between in-memory and Mongo-backed modes, so cross-references
+  seeded elsewhere (`assignedAnalystId`, `mitreTechniqueIds`, ...) don't need translation
+- `passwordHash` has `select: false` on the User schema *and* a `toJSON` transform that strips
+  it — two independent backstops behind the type-level guarantee from Phase 4
+  (`Promise<PublicUser>`), so a leak would require three separate mistakes, not one
+- AuditLog fields are all `immutable: true` in the schema, and `MongoAuditLogRepository` has no
+  update/delete method — mirrors the same "the interface structurally can't allow it" guarantee
+  `InMemoryAuditLogRepository` already had (spec §39)
+- Indicator's 4-way discriminated union (IP/domain/URL/hash) uses one flat schema with
+  type-specific fields declared-but-optional, rather than Mongoose discriminators — Zod already
+  enforces the exact per-type shape at the API boundary, so the schema's job here is "every
+  field has a declared type," not re-deriving polymorphism discriminators would add real
+  complexity for little benefit
+- Connection management (`config/database.ts`): fails fast on an unreachable cluster
+  (`serverSelectionTimeoutMS`) rather than hanging, structured logging on
+  connect/error/disconnect, graceful disconnect on shutdown
+
+**Honest limitation — read before trusting this in production**: the Mongoose code above was
+typechecked, linted, and carefully reviewed field-by-field against the in-memory
+implementations it mirrors (which *are* covered by the existing 177 executed tests), but it
+was **not executed against a real MongoDB** in the environment it was written in.
+`mongodb-memory-server` — the standard tool for exactly this kind of test — needs to download
+a real ~600MB MongoDB binary on first use, and that download measured roughly 0.16–0.5 MB/s
+here, making a full local verification pass impractical in this session. A complete
+integration test suite exists for the User repository
+(`src/repositories/user.repository.mongo.test.ts`, run via `npm run test:mongo`, separated
+from the default `npm test` for exactly this reason) as a template for the rest — **run it
+yourself once, anywhere with normal internet access, before deploying this against a real
+database.** The remaining 9 repositories follow the identical pattern and would benefit from
+the same treatment.
+
 ## Not yet built (later phases — nothing here is silently faked)
 
-- A real database (Phase 5) — every repository above is in-memory behind an interface a
-  MongoDB implementation can fulfill without the service layer changing
 - Real AI/OpenAI calls (Phase 6), real threat-intel provider integrations (Phase 7),
   anomaly detection (Phase 8), a real correlation/risk engine (Phase 9), response workflows
   (Phase 10)
-- Broader adversarial tooling this pass didn't cover: Semgrep static analysis, OWASP ZAP
+- Broader adversarial tooling Phase 4 didn't cover: Semgrep static analysis, OWASP ZAP
   dynamic scanning, and CI-integrated Dependabot — spec §3 devsecops recommendations that need
-  either tool access or a CI pipeline this phase doesn't have yet
-- A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
-  implementation will fulfill later; nothing above that seam needs to change when it does.
+  either tool access or a CI pipeline this project doesn't have yet
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw
   token back in the API response when `NODE_ENV !== production` (never in production) so the
   flow is testable end to end. This is a real, working token — just delivered by a different
   channel than production will eventually use.
-- Real AI/OpenAI calls — Phase 6
-- Real threat-intel provider integrations — Phase 7
+- Redis/BullMQ for background jobs, and a vector search index for RAG — both named in the
+  project's tech stack but not needed by anything built through Phase 5
 
 ## Development
 

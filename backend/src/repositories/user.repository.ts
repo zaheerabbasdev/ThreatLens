@@ -89,13 +89,18 @@ export class InMemoryUserRepository implements UserRepository {
   }
 }
 
+/** Structural type so this seed function works against either the in-memory or Mongo-backed repository — both implement `.seed()`, just with sync vs. async signatures. */
+interface SeedableUserRepository {
+  seed(user: User): void | Promise<void>;
+}
+
 /**
  * Demo data mirroring the frontend's mock users (src/mocks/identity.ts) so
  * the same accounts work against either layer during this transitional
  * phase. Real password: the frontend's DEMO_CREDENTIALS.password, hashed
  * for real here rather than compared as plaintext.
  */
-export async function seedDemoUsers(repository: InMemoryUserRepository): Promise<void> {
+export async function seedDemoUsers(repository: SeedableUserRepository): Promise<void> {
   const passwordHash = await hashPassword("ThreatLens#Demo1");
   const organizationId = "org_northwind";
   const now = new Date().toISOString();
@@ -109,6 +114,6 @@ export async function seedDemoUsers(repository: InMemoryUserRepository): Promise
   ];
 
   for (const user of demoUsers) {
-    repository.seed({ ...user, avatarSeed: user.id, passwordHash, createdAt: now, emailVerifiedAt: now, lastActiveAt: now });
+    await repository.seed({ ...user, avatarSeed: user.id, passwordHash, createdAt: now, emailVerifiedAt: now, lastActiveAt: now });
   }
 }

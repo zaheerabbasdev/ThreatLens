@@ -1,8 +1,11 @@
-import type { InMemoryIndicatorRepository } from "./indicator.repository.js";
 import type { Indicator } from "../types/indicator.js";
 
+interface SeedableIndicatorRepository {
+  seed(indicator: Indicator): void | Promise<void>;
+}
+
 /** Mirrors the frontend's src/mocks/indicators.ts (same IDs/content). */
-export function seedDemoIndicators(repository: InMemoryIndicatorRepository): void {
+export async function seedDemoIndicators(repository: SeedableIndicatorRepository): Promise<void> {
   const organizationId = "org_northwind";
 
   const indicators: Indicator[] = [
@@ -120,5 +123,5 @@ export function seedDemoIndicators(repository: InMemoryIndicatorRepository): voi
     },
   ];
 
-  for (const indicator of indicators) repository.seed(indicator);
+  for (const indicator of indicators) await repository.seed(indicator);
 }

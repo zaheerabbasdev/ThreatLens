@@ -1,5 +1,8 @@
-import type { InMemoryReportRepository } from "./report.repository.js";
 import type { Report } from "../types/report.js";
+
+interface SeedableReportRepository {
+  seed(report: Report): void | Promise<void>;
+}
 
 /**
  * Mirrors the frontend's src/mocks/reports.ts (same IDs/content). These are
@@ -11,7 +14,7 @@ import type { Report } from "../types/report.js";
  * elsewhere today). Any report created *now* via the real submit flow uses
  * report.service.ts's generateSummary, computed from current data.
  */
-export function seedDemoReports(repository: InMemoryReportRepository): void {
+export async function seedDemoReports(repository: SeedableReportRepository): Promise<void> {
   const organizationId = "org_northwind";
 
   const reports: Report[] = [
@@ -72,5 +75,5 @@ export function seedDemoReports(repository: InMemoryReportRepository): void {
     },
   ];
 
-  for (const report of reports) repository.seed(report);
+  for (const report of reports) await repository.seed(report);
 }

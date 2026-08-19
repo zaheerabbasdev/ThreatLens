@@ -1,8 +1,11 @@
-import type { InMemoryThreatActorRepository } from "./threatActor.repository.js";
 import type { ThreatActor } from "../types/threatActor.js";
 
+interface SeedableThreatActorRepository {
+  seed(actors: ThreatActor[]): void | Promise<void>;
+}
+
 /** Mirrors the frontend's src/mocks/threatActors.ts (same IDs/content). */
-export function seedThreatActors(repository: InMemoryThreatActorRepository): void {
+export async function seedThreatActors(repository: SeedableThreatActorRepository): Promise<void> {
   const actors: ThreatActor[] = [
     {
       id: "actor_1",
@@ -25,5 +28,5 @@ export function seedThreatActors(repository: InMemoryThreatActorRepository): voi
       firstObserved: "2024-06-18T00:00:00Z",
     },
   ];
-  repository.seed(actors);
+  await repository.seed(actors);
 }

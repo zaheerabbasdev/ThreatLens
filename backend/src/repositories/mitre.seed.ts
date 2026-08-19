@@ -1,12 +1,15 @@
-import type { InMemoryMitreRepository } from "./mitre.repository.js";
 import type { MitreTactic, MitreTechniqueBase } from "../types/mitre.js";
+
+interface SeedableMitreRepository {
+  seed(tactics: MitreTactic[], techniques: MitreTechniqueBase[]): void | Promise<void>;
+}
 
 /**
  * Mirrors the frontend's src/mocks/mitre.ts, minus mappedIncidentIds/
  * mappedIndicatorIds — those are computed per-organization at request time
  * (see mitre.service.ts), not stored statically.
  */
-export function seedMitreData(repository: InMemoryMitreRepository): void {
+export async function seedMitreData(repository: SeedableMitreRepository): Promise<void> {
   const tactics: MitreTactic[] = [
     { id: "TA0001", name: "Initial Access", shortName: "initial-access", description: "Techniques used to gain an initial foothold within a network." },
     { id: "TA0002", name: "Execution", shortName: "execution", description: "Techniques that result in adversary-controlled code running on a system." },
@@ -29,5 +32,5 @@ export function seedMitreData(repository: InMemoryMitreRepository): void {
     { id: "T1041", tacticIds: ["TA0010"], name: "Exfiltration Over C2 Channel", description: "Adversaries steal data by exfiltrating it over an existing C2 channel.", isSubTechnique: false },
   ];
 
-  repository.seed(tactics, techniques);
+  await repository.seed(tactics, techniques);
 }

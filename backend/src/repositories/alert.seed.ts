@@ -1,8 +1,11 @@
-import type { InMemoryAlertRepository } from "./alert.repository.js";
 import type { Alert } from "../types/alert.js";
 
+interface SeedableAlertRepository {
+  seed(alert: Alert): void | Promise<void>;
+}
+
 /** Mirrors the frontend's src/mocks/alerts.ts (same IDs/content). */
-export function seedDemoAlerts(repository: InMemoryAlertRepository): void {
+export async function seedDemoAlerts(repository: SeedableAlertRepository): Promise<void> {
   const organizationId = "org_northwind";
 
   const alerts: Alert[] = [
@@ -115,5 +118,5 @@ export function seedDemoAlerts(repository: InMemoryAlertRepository): void {
     },
   ];
 
-  for (const alert of alerts) repository.seed(alert);
+  for (const alert of alerts) await repository.seed(alert);
 }

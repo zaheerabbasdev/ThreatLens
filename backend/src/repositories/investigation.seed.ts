@@ -1,8 +1,11 @@
-import type { InMemoryInvestigationRepository } from "./investigation.repository.js";
 import type { Investigation } from "../types/investigation.js";
 
+interface SeedableInvestigationRepository {
+  seed(investigation: Investigation): void | Promise<void>;
+}
+
 /** Mirrors the frontend's src/mocks/investigations.ts (same ID/content for inv_1). */
-export function seedDemoInvestigations(repository: InMemoryInvestigationRepository): void {
+export async function seedDemoInvestigations(repository: SeedableInvestigationRepository): Promise<void> {
   const organizationId = "org_northwind";
 
   const investigation: Investigation = {
@@ -68,5 +71,5 @@ export function seedDemoInvestigations(repository: InMemoryInvestigationReposito
     updatedAt: "2026-08-15T11:35:00Z",
   };
 
-  repository.seed(investigation);
+  await repository.seed(investigation);
 }

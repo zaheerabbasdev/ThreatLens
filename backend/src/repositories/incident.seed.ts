@@ -1,8 +1,12 @@
-import type { InMemoryIncidentRepository } from "./incident.repository.js";
 import type { Incident } from "../types/incident.js";
 
+/** Structural type so this seed function works against either the in-memory or Mongo-backed repository. */
+interface SeedableIncidentRepository {
+  seed(incident: Incident): void | Promise<void>;
+}
+
 /** Mirrors the frontend's src/mocks/incidents.ts (same IDs/content) so the two layers show the same demo story once wired together. */
-export function seedDemoIncidents(repository: InMemoryIncidentRepository): void {
+export async function seedDemoIncidents(repository: SeedableIncidentRepository): Promise<void> {
   const organizationId = "org_northwind";
 
   const incidents: Incident[] = [
@@ -193,5 +197,5 @@ export function seedDemoIncidents(repository: InMemoryIncidentRepository): void 
     },
   ];
 
-  for (const incident of incidents) repository.seed(incident);
+  for (const incident of incidents) await repository.seed(incident);
 }

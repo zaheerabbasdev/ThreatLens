@@ -19,6 +19,20 @@ const envSchema = z.object({
   // compromising one token type doesn't compromise the other (spec §17).
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
+
+  // Optional: when unset, server.ts falls back to the in-memory repositories
+  // (unchanged from Phase 3) — lets local dev run without a real database.
+  // When set, it must be a real mongodb:// or mongodb+srv:// URI (spec §12:
+  // encrypted connections, no public unrestricted access) — never a bare
+  // "trust whatever string shows up" pass-through.
+  MONGODB_URI: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || v.startsWith("mongodb://") || v.startsWith("mongodb+srv://"), {
+      message: "MONGODB_URI must start with mongodb:// or mongodb+srv://",
+    })
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
 });
 
 export type Env = z.infer<typeof envSchema>;
