@@ -173,17 +173,50 @@ the start of this phase: auth, RBAC, and all domain modules the frontend expects
 by real logic (not stubs) and tested end to end. See "Not yet built" below for what's
 deliberately deferred to later phases.
 
-**Not yet built** (later phases — nothing here is silently faked):
+## Phase 4 — Backend QA
+
+A dedicated audit pass across everything Phase 3 built, beyond the per-module work already
+folded in along the way:
+
+- **Authorization sweep** (spec §79): every route across all 11 route files reviewed by hand
+  for `requireAuth`/`requirePermission` coverage. Zero gaps found — the two routes with no
+  static permission check (`users:*/profile`, `users:*/mfa`) are the documented self-service
+  exception, checked conditionally in the service layer instead; auth's public endpoints
+  (register/login/refresh/forgot-password/etc.) are intentionally unauthenticated by design.
+- **Dependency audit**: `npm audit` — 0 vulnerabilities.
+- **Static sweep**: zero stray `console.*` calls outside the one legitimate pre-logger use in
+  `config/env.ts`, zero `any` types anywhere, zero TODO/FIXME markers.
+- **Secret-leak guarantee verified at the type level, not just by convention**: every
+  `AuthService`/`UsersService` method that returns a user is typed `Promise<PublicUser>` —
+  `passwordHash` reaching a response would be a compile error, not just a missed review.
+- **`asyncHandler` coverage**: all 47 controller methods across every module confirmed wrapped
+  — zero raw async route handlers that could silently swallow a rejected promise.
+- **Production-mode behavior, verified live** (not just unit-tested): booted with
+  `NODE_ENV=production` and confirmed — a malformed JSON body still returns a clean, generic
+  400 with no stack trace; CORS correctly rejects a disallowed origin and allows the
+  configured one; HSTS/X-Content-Type-Options/X-Frame-Options headers all present.
+- **Rate limiting, verified under real load**: 12 rapid `/auth/login` requests against a live
+  server — the first 10 processed normally (401 for bad credentials), requests 11–12 correctly
+  hit 429, confirming the STRICT tier actually engages, not just that the middleware is wired.
+- **Full-stack regression**: backend (typecheck/lint/177 tests/build) and frontend
+  (typecheck/lint/129 tests/build) both re-verified green after the audit — one frontend test
+  timeout under concurrent load was confirmed to be resource contention (reran in isolation,
+  129/129 in 34s vs. 95s), not a regression; nothing in this phase touched frontend code.
+
+No bugs required fixing this pass — Phase 3's per-module security work (IDOR guards, tenant
+isolation, non-spoofable actor attribution, tiered rate limiting, real audit trail) held up
+under a dedicated adversarial review rather than needing new patches.
+
+## Not yet built (later phases — nothing here is silently faked)
 
 - A real database (Phase 5) — every repository above is in-memory behind an interface a
   MongoDB implementation can fulfill without the service layer changing
 - Real AI/OpenAI calls (Phase 6), real threat-intel provider integrations (Phase 7),
   anomaly detection (Phase 8), a real correlation/risk engine (Phase 9), response workflows
   (Phase 10)
-- Backend QA hardening as its own formal pass (Phase 4) — this phase's own increments each
-  included real security work (IDOR guards, tenant isolation, rate limiting, audit trails,
-  non-spoofable actor attribution) rather than deferring all of it, but a dedicated QA pass
-  (broader penetration-style testing, dependency audit, etc.) hasn't happened yet
+- Broader adversarial tooling this pass didn't cover: Semgrep static analysis, OWASP ZAP
+  dynamic scanning, and CI-integrated Dependabot — spec §3 devsecops recommendations that need
+  either tool access or a CI pipeline this phase doesn't have yet
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw
