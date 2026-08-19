@@ -118,10 +118,27 @@ real (non-placeholder) request ID lands on the record. The repository itself has
 update/delete method at all — not merely unimplemented, but structurally absent from the
 interface, so nothing built against it can alter or remove a record even by accident.
 
+**MITRE ATT&CK** (increment 9): `GET /mitre/tactics`, `GET /mitre/techniques`,
+`GET /mitre/techniques/:id` — read-only reference data (spec §44).
+
+- Caught a real cross-tenant leak the frontend mock's own data shape has: techniques are
+  shared/global (there's only one "Phishing" technique, not one per organization), but the
+  frontend mock bakes `mappedIncidentIds`/`mappedIndicatorIds` directly onto each technique
+  record as static data. Doing that server-side would mean org A's incident IDs show up when
+  org B asks about the same shared technique. Instead, those two fields are computed **per
+  request**, scoped to the caller's organization, by checking which of *that org's* incidents
+  reference the technique — verified by a test that registers a second organization and
+  confirms it sees the same 8 techniques but with empty mappings, not org_northwind's data
+- `mappedIndicatorIds` has no direct backing field on `Indicator` (indicators don't carry a
+  technique association in this data model) — derived honestly from the mapped incidents' own
+  `indicatorIds` rather than inventing a relationship that doesn't exist
+- No permission dedicated to this module exists in the matrix (the frontend doesn't have one
+  either) — gated behind `threat_graph:read`, which every seeded role already has
+
 **Not yet built** (later increments of this same phase, or later phases entirely — nothing
 below is silently faked):
 
-- Remaining domain routes (reports, MITRE, threat graph) — next increments, following the
+- Remaining domain routes (reports, threat graph) — next increments, following the
   established pattern
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.

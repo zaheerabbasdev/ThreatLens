@@ -46,6 +46,12 @@ import type { AuditLogRepository } from "./repositories/auditLog.repository.js";
 import { createAuditRouter } from "./audit/audit.routes.js";
 import { createAuditController } from "./audit/audit.controller.js";
 import { AuditService } from "./audit/audit.service.js";
+import { InMemoryMitreRepository } from "./repositories/mitre.repository.js";
+import type { MitreRepository } from "./repositories/mitre.repository.js";
+import { seedMitreData } from "./repositories/mitre.seed.js";
+import { createMitreRouter } from "./mitre/mitre.routes.js";
+import { createMitreController } from "./mitre/mitre.controller.js";
+import { MitreService } from "./mitre/mitre.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -56,6 +62,7 @@ export interface AppDependencies {
   organizationRepository: OrganizationRepository;
   indicatorRepository: IndicatorRepository;
   auditLogRepository: AuditLogRepository;
+  mitreRepository: MitreRepository;
 }
 
 /**
@@ -63,6 +70,12 @@ export interface AppDependencies {
  * check and for tests that construct/seed their own instances explicitly.
  * server.ts passes real (seeded) ones in for actual runs.
  */
+function seedMitreRepository(): MitreRepository {
+  const repository = new InMemoryMitreRepository();
+  seedMitreData(repository);
+  return repository;
+}
+
 export function createApp(deps: Partial<AppDependencies> = {}) {
   const userRepository = deps.userRepository ?? new InMemoryUserRepository();
   const incidentRepository = deps.incidentRepository ?? new InMemoryIncidentRepository();
@@ -71,6 +84,11 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const organizationRepository = deps.organizationRepository ?? new InMemoryOrganizationRepository();
   const indicatorRepository = deps.indicatorRepository ?? new InMemoryIndicatorRepository();
   const auditLogRepository = deps.auditLogRepository ?? new InMemoryAuditLogRepository();
+  // Unlike the other repositories, MITRE reference data has no meaningful
+  // "empty" state — it's static system content, not per-tenant demo data —
+  // so the default (when no test/caller supplies its own) is pre-seeded
+  // rather than left blank.
+  const mitreRepository = deps.mitreRepository ?? seedMitreRepository();
 
   // Constructed first — every other service below records through it.
   const auditService = new AuditService(auditLogRepository);
@@ -112,6 +130,10 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const auditController = createAuditController(auditService);
   const auditRouter = createAuditRouter(auditController);
 
+  const mitreService = new MitreService(mitreRepository, incidentRepository);
+  const mitreController = createMitreController(mitreService);
+  const mitreRouter = createMitreRouter(mitreController);
+
   const apiV1Router = createApiV1Router({
     authRouter,
     incidentsRouter,
@@ -121,6 +143,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     organizationRouter,
     iocRouter,
     auditRouter,
+    mitreRouter,
   });
 
   const app = express();
