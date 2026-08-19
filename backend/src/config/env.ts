@@ -14,6 +14,11 @@ const envSchema = z.object({
     .string()
     .min(1, "CORS_ALLOWED_ORIGINS must list at least one allowed origin")
     .transform((value) => value.split(",").map((origin) => origin.trim()).filter(Boolean)),
+
+  // Signing secrets for access/refresh JWTs — deliberately separate keys so
+  // compromising one token type doesn't compromise the other (spec §17).
+  JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
+  JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
 });
 
 export type Env = z.infer<typeof envSchema>;
