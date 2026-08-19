@@ -95,11 +95,34 @@ URL, and hash indicators.
   actually exists in the caller's org (previously undeferrable, honestly, since no
   IndicatorRepository existed yet) — same treatment `linkIncident` already had
 
+**Audit Logs** (increment 8): `GET /audit-logs` — read-only on purpose, no write route exists
+(spec §39: restricted write access, no deletion). Unlike every other module so far, this one
+isn't just a passive CRUD API nobody calls — it's wired as a real side effect into every
+security-sensitive action already built:
+
+- `AuthService`: LOGIN, LOGIN\_FAILED, LOGOUT, PASSWORD\_CHANGED (both reset and self-service
+  change)
+- `UsersService`: ROLE\_CHANGED, USER\_STATUS\_CHANGED, PROFILE\_UPDATED, MFA\_CHANGED
+- `IncidentsService` / `AlertsService`: INCIDENT\_UPDATED, INCIDENT\_ASSIGNED, ALERT\_UPDATED
+- `InvestigationsService`: INVESTIGATION\_CREATED, INVESTIGATION\_UPDATED (finer-grained
+  changes — notes, incident/indicator links — stay in the investigation's own timeline rather
+  than duplicating into a separate audit entry per edit)
+- `OrganizationService`: SECURITY\_SETTING\_CHANGED (renaming)
+- `IOCService`: IOC\_SUBMITTED
+
+`requestId`/`ipAddress` (spec §38 requires both on every record) are captured via
+`AsyncLocalStorage` (`middleware/requestContext.ts`) rather than threaded as parameters
+through every service method that might eventually record something — set once by middleware,
+read automatically wherever `AuditService.record()` is called, verified by a test asserting a
+real (non-placeholder) request ID lands on the record. The repository itself has no
+update/delete method at all — not merely unimplemented, but structurally absent from the
+interface, so nothing built against it can alter or remove a record even by accident.
+
 **Not yet built** (later increments of this same phase, or later phases entirely — nothing
 below is silently faked):
 
-- Remaining domain routes (reports, audit logs, MITRE, threat graph) — next increments,
-  following the established pattern
+- Remaining domain routes (reports, MITRE, threat graph) — next increments, following the
+  established pattern
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw

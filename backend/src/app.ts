@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import { pinoHttp } from "pino-http";
 import { corsMiddleware, securityHeaders } from "./middleware/security.js";
 import { requestId } from "./middleware/requestId.js";
+import { requestContextMiddleware } from "./middleware/requestContext.js";
 import { createApiRateLimit } from "./middleware/rateLimit.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { notFoundHandler } from "./middleware/notFoundHandler.js";
@@ -40,6 +41,11 @@ import type { IndicatorRepository } from "./repositories/indicator.repository.js
 import { createIOCRouter } from "./threatIntel/ioc.routes.js";
 import { createIOCController } from "./threatIntel/ioc.controller.js";
 import { IOCService } from "./threatIntel/ioc.service.js";
+import { InMemoryAuditLogRepository } from "./repositories/auditLog.repository.js";
+import type { AuditLogRepository } from "./repositories/auditLog.repository.js";
+import { createAuditRouter } from "./audit/audit.routes.js";
+import { createAuditController } from "./audit/audit.controller.js";
+import { AuditService } from "./audit/audit.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -49,6 +55,7 @@ export interface AppDependencies {
   investigationRepository: InvestigationRepository;
   organizationRepository: OrganizationRepository;
   indicatorRepository: IndicatorRepository;
+  auditLogRepository: AuditLogRepository;
 }
 
 /**
@@ -63,16 +70,20 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const investigationRepository = deps.investigationRepository ?? new InMemoryInvestigationRepository();
   const organizationRepository = deps.organizationRepository ?? new InMemoryOrganizationRepository();
   const indicatorRepository = deps.indicatorRepository ?? new InMemoryIndicatorRepository();
+  const auditLogRepository = deps.auditLogRepository ?? new InMemoryAuditLogRepository();
 
-  const authService = new AuthService(userRepository, organizationRepository);
+  // Constructed first — every other service below records through it.
+  const auditService = new AuditService(auditLogRepository);
+
+  const authService = new AuthService(userRepository, organizationRepository, auditService);
   const authController = createAuthController(authService);
   const authRouter = createAuthRouter(authController);
 
-  const incidentsService = new IncidentsService(incidentRepository, userRepository);
+  const incidentsService = new IncidentsService(incidentRepository, userRepository, auditService);
   const incidentsController = createIncidentsController(incidentsService);
   const incidentsRouter = createIncidentsRouter(incidentsController);
 
-  const alertsService = new AlertsService(alertRepository);
+  const alertsService = new AlertsService(alertRepository, userRepository, auditService);
   const alertsController = createAlertsController(alertsService);
   const alertsRouter = createAlertsRouter(alertsController);
 
@@ -81,21 +92,25 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     incidentRepository,
     userRepository,
     indicatorRepository,
+    auditService,
   );
   const investigationsController = createInvestigationsController(investigationsService);
   const investigationsRouter = createInvestigationsRouter(investigationsController);
 
-  const usersService = new UsersService(userRepository);
+  const usersService = new UsersService(userRepository, auditService);
   const usersController = createUsersController(usersService);
   const usersRouter = createUsersRouter(usersController);
 
-  const organizationService = new OrganizationService(organizationRepository);
+  const organizationService = new OrganizationService(organizationRepository, userRepository, auditService);
   const organizationController = createOrganizationController(organizationService);
   const organizationRouter = createOrganizationRouter(organizationController);
 
-  const iocService = new IOCService(indicatorRepository);
+  const iocService = new IOCService(indicatorRepository, userRepository, auditService);
   const iocController = createIOCController(iocService);
   const iocRouter = createIOCRouter(iocController);
+
+  const auditController = createAuditController(auditService);
+  const auditRouter = createAuditRouter(auditController);
 
   const apiV1Router = createApiV1Router({
     authRouter,
@@ -105,6 +120,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     usersRouter,
     organizationRouter,
     iocRouter,
+    auditRouter,
   });
 
   const app = express();
@@ -116,6 +132,9 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   // Request ID first — everything after this (logging, error responses)
   // depends on req.id already being set.
   app.use(requestId);
+  // Populates AsyncLocalStorage from req.id/req.ip so services can record
+  // audit entries without every method taking them as parameters.
+  app.use(requestContextMiddleware);
 
   app.use(securityHeaders);
   app.use(corsMiddleware);

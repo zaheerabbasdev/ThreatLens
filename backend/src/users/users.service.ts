@@ -3,6 +3,7 @@ import type { UserRepository, UserListParams } from "../repositories/user.reposi
 import { toPublicUser } from "../types/user.js";
 import type { PublicUser, Role, UserStatus } from "../types/user.js";
 import type { PaginatedResult } from "../types/common.js";
+import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
 
 export interface UpdateProfileInput {
@@ -11,7 +12,10 @@ export interface UpdateProfileInput {
 }
 
 export class UsersService {
-  constructor(private readonly users: UserRepository) {}
+  constructor(
+    private readonly users: UserRepository,
+    private readonly audit: AuditService,
+  ) {}
 
   async list(organizationId: string, params: UserListParams): Promise<PaginatedResult<PublicUser>> {
     const result = await this.users.list(organizationId, params);
@@ -46,6 +50,7 @@ export class UsersService {
     this.assertCanModify(callerId, callerCanManageUsers, targetId);
     const updated = await this.users.update(targetId, { name: input.name, title: input.title });
     if (!updated) throw new NotFoundError("The requested user was not found.");
+    await this.recordAudit(organizationId, callerId, "PROFILE_UPDATED", targetId);
     return toPublicUser(updated);
   }
 
@@ -60,6 +65,7 @@ export class UsersService {
     this.assertCanModify(callerId, callerCanManageUsers, targetId);
     const updated = await this.users.update(targetId, { mfaEnabled: enabled });
     if (!updated) throw new NotFoundError("The requested user was not found.");
+    await this.recordAudit(organizationId, callerId, "MFA_CHANGED", targetId);
     return toPublicUser(updated);
   }
 
@@ -78,6 +84,7 @@ export class UsersService {
     const updated = await this.users.update(targetId, { role });
     if (!updated) throw new NotFoundError("The requested user was not found.");
     logger.info({ organizationId, targetId, role, event: "user.role_changed" }, "User role changed");
+    await this.recordAudit(organizationId, callerId, "ROLE_CHANGED", targetId, "medium");
     return toPublicUser(updated);
   }
 
@@ -89,6 +96,7 @@ export class UsersService {
     const updated = await this.users.update(targetId, { status });
     if (!updated) throw new NotFoundError("The requested user was not found.");
     logger.info({ organizationId, targetId, status, event: "user.status_changed" }, "User status changed");
+    await this.recordAudit(organizationId, callerId, "USER_STATUS_CHANGED", targetId, "medium");
     return toPublicUser(updated);
   }
 
@@ -98,5 +106,25 @@ export class UsersService {
       throw new NotFoundError("The requested user was not found.");
     }
     return user;
+  }
+
+  private async recordAudit(
+    organizationId: string,
+    actorId: string,
+    action: "PROFILE_UPDATED" | "MFA_CHANGED" | "ROLE_CHANGED" | "USER_STATUS_CHANGED",
+    targetId: string,
+    severity: "info" | "medium" = "info",
+  ): Promise<void> {
+    const actor = await this.users.findById(actorId);
+    await this.audit.record({
+      organizationId,
+      actorId,
+      actorName: actor?.name ?? "Unknown",
+      action,
+      resourceType: "user",
+      resourceId: targetId,
+      result: "success",
+      severity,
+    });
   }
 }

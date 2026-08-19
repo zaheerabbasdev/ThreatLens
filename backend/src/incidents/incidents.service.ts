@@ -4,8 +4,8 @@ import type { IncidentRepository, IncidentListParams, IncidentSummary } from "..
 import type { UserRepository } from "../repositories/user.repository.js";
 import type { Incident, IncidentNote } from "../types/incident.js";
 import type { PaginatedResult } from "../types/common.js";
+import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
-
 
 /**
  * Object-level authorization (spec §19): every method takes the caller's
@@ -19,6 +19,7 @@ export class IncidentsService {
   constructor(
     private readonly incidents: IncidentRepository,
     private readonly users: UserRepository,
+    private readonly audit: AuditService,
   ) {}
 
   list(organizationId: string, params: IncidentListParams): Promise<PaginatedResult<Incident>> {
@@ -35,14 +36,25 @@ export class IncidentsService {
     return this.incidents.getSummary(organizationId);
   }
 
-  async updateStatus(organizationId: string, id: string, status: Incident["status"]): Promise<Incident> {
+  async updateStatus(organizationId: string, id: string, status: Incident["status"], actorId: string): Promise<Incident> {
     const updated = await this.incidents.update(organizationId, id, { status, updatedAt: new Date().toISOString() });
     if (!updated) throw new NotFoundError("The requested incident was not found.");
     logger.info({ organizationId, incidentId: id, status, event: "incident.status_changed" }, "Incident status changed");
+    const actor = await this.users.findById(actorId);
+    await this.audit.record({
+      organizationId,
+      actorId,
+      actorName: actor?.name ?? "Unknown",
+      action: "INCIDENT_UPDATED",
+      resourceType: "incident",
+      resourceId: id,
+      result: "success",
+      severity: "low",
+    });
     return updated;
   }
 
-  async assign(organizationId: string, id: string, analystId: string | null): Promise<Incident> {
+  async assign(organizationId: string, id: string, analystId: string | null, actorId: string): Promise<Incident> {
     // The primary resource's own existence/ownership is checked before
     // validating anything about the request body — so which error a caller
     // sees never depends on the order fields happen to be checked in, and a
@@ -68,6 +80,17 @@ export class IncidentsService {
     });
     if (!updated) throw new NotFoundError("The requested incident was not found.");
     logger.info({ organizationId, incidentId: id, analystId, event: "incident.assigned" }, "Incident assigned");
+    const actor = await this.users.findById(actorId);
+    await this.audit.record({
+      organizationId,
+      actorId,
+      actorName: actor?.name ?? "Unknown",
+      action: "INCIDENT_ASSIGNED",
+      resourceType: "incident",
+      resourceId: id,
+      result: "success",
+      severity: "low",
+    });
     return updated;
   }
 

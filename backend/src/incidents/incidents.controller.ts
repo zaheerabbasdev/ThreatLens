@@ -31,14 +31,14 @@ export function createIncidentsController(service: IncidentsService) {
     updateStatus: asyncHandler(async (req, res) => {
       if (!req.user) throw new UnauthorizedError();
       const input = updateStatusSchema.parse(req.body);
-      const incident = await service.updateStatus(req.user.organizationId, req.params["id"]!, input.status);
+      const incident = await service.updateStatus(req.user.organizationId, req.params["id"]!, input.status, req.user.id);
       sendSuccess(res, incident);
     }),
 
     assign: asyncHandler(async (req, res) => {
       if (!req.user) throw new UnauthorizedError();
       const input = assignSchema.parse(req.body);
-      const incident = await service.assign(req.user.organizationId, req.params["id"]!, input.analystId);
+      const incident = await service.assign(req.user.organizationId, req.params["id"]!, input.analystId, req.user.id);
       sendSuccess(res, incident);
     }),
 

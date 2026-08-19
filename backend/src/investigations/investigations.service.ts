@@ -9,6 +9,7 @@ import type { UserRepository } from "../repositories/user.repository.js";
 import type { IndicatorRepository } from "../repositories/indicator.repository.js";
 import type { Investigation, InvestigationNote, InvestigationTimelineEvent } from "../types/investigation.js";
 import type { PaginatedResult, WorkflowStatus } from "../types/common.js";
+import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
 
 function timelineEvent(title: string, description: string, actor: string): InvestigationTimelineEvent {
@@ -27,6 +28,7 @@ export class InvestigationsService {
     private readonly incidents: IncidentRepository,
     private readonly users: UserRepository,
     private readonly indicators: IndicatorRepository,
+    private readonly audit: AuditService,
   ) {}
 
   list(organizationId: string, params: InvestigationListParams): Promise<PaginatedResult<Investigation>> {
@@ -70,6 +72,16 @@ export class InvestigationsService {
     };
     const created = await this.investigations.create(investigation);
     logger.info({ organizationId, investigationId: created.id, event: "investigation.created" }, "Investigation created");
+    await this.audit.record({
+      organizationId,
+      actorId: creatorId,
+      actorName: creator.name,
+      action: "INVESTIGATION_CREATED",
+      resourceType: "investigation",
+      resourceId: created.id,
+      result: "success",
+      severity: "info",
+    });
     return created;
   }
 
@@ -84,8 +96,24 @@ export class InvestigationsService {
       updatedAt: new Date().toISOString(),
     });
     if (!updated) throw new NotFoundError("The requested investigation was not found.");
+    await this.audit.record({
+      organizationId,
+      actorId,
+      actorName: actor.name,
+      action: "INVESTIGATION_UPDATED",
+      resourceType: "investigation",
+      resourceId: id,
+      result: "success",
+      severity: "low",
+    });
     return updated;
   }
+
+  // Finer-grained changes below (notes, incident/indicator links) are
+  // already captured in the investigation's own timeline, which is that
+  // resource's audit trail; they don't also get a separate AuditLog entry
+  // — this module reserves that for the cross-cutting, security-relevant
+  // events spec §38 lists (create/status-change), not every field edit.
 
   /** authorName is resolved server-side from the session — never trusted from the request body (same reasoning as IncidentsService.addNote). */
   async addNote(

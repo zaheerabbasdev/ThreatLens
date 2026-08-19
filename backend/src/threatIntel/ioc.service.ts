@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { NotFoundError } from "../errors/AppError.js";
 import type { IndicatorRepository, IndicatorListParams } from "../repositories/indicator.repository.js";
+import type { UserRepository } from "../repositories/user.repository.js";
 import type { Indicator, HashAlgorithm } from "../types/indicator.js";
 import type { PaginatedResult } from "../types/common.js";
 import type { SubmitInput } from "./ioc.schemas.js";
+import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
 
 function hashAlgorithmFor(value: string): HashAlgorithm {
@@ -13,7 +15,11 @@ function hashAlgorithmFor(value: string): HashAlgorithm {
 }
 
 export class IOCService {
-  constructor(private readonly indicators: IndicatorRepository) {}
+  constructor(
+    private readonly indicators: IndicatorRepository,
+    private readonly users: UserRepository,
+    private readonly audit: AuditService,
+  ) {}
 
   async submit(organizationId: string, submittedBy: string, input: SubmitInput): Promise<Indicator> {
     const now = new Date().toISOString();
@@ -66,6 +72,17 @@ export class IOCService {
       { organizationId, indicatorId: created.id, type: created.type, event: "ioc.submitted" },
       "IOC submitted",
     );
+    const actor = await this.users.findById(submittedBy);
+    await this.audit.record({
+      organizationId,
+      actorId: submittedBy,
+      actorName: actor?.name ?? "Unknown",
+      action: "IOC_SUBMITTED",
+      resourceType: "indicator",
+      resourceId: created.id,
+      result: "success",
+      severity: "info",
+    });
     return created;
   }
 

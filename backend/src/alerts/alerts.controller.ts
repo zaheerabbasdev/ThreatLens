@@ -31,7 +31,7 @@ export function createAlertsController(service: AlertsService) {
     updateStatus: asyncHandler(async (req, res) => {
       if (!req.user) throw new UnauthorizedError();
       const input = updateStatusSchema.parse(req.body);
-      const alert = await service.updateStatus(req.user.organizationId, req.params["id"]!, input.status);
+      const alert = await service.updateStatus(req.user.organizationId, req.params["id"]!, input.status, req.user.id);
       sendSuccess(res, alert);
     }),
   };

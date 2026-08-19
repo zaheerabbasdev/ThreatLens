@@ -17,7 +17,7 @@ export function createOrganizationController(service: OrganizationService) {
     updateName: asyncHandler(async (req, res) => {
       if (!req.user) throw new UnauthorizedError();
       const input = updateNameSchema.parse(req.body);
-      const org = await service.updateName(req.user.organizationId, input.name);
+      const org = await service.updateName(req.user.organizationId, req.user.id, input.name);
       sendSuccess(res, org);
     }),
   };

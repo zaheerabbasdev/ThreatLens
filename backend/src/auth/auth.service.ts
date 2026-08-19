@@ -11,6 +11,7 @@ import type { UserRepository } from "../repositories/user.repository.js";
 import type { OrganizationRepository } from "../repositories/organization.repository.js";
 import { slugify } from "../repositories/organization.repository.js";
 import type { RegisterInput, LoginInput } from "./schemas.js";
+import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
 
 /** A password hash that never validates against anything — used to keep login's response time roughly constant whether or not the email exists (spec §24: don't leak account existence through a timing side channel). */
@@ -33,6 +34,7 @@ export class AuthService {
   constructor(
     private readonly users: UserRepository,
     private readonly organizations: OrganizationRepository,
+    private readonly audit: AuditService,
   ) {}
 
   private async issueTokenPair(user: User, family?: string): Promise<AuthTokens> {
@@ -79,6 +81,16 @@ export class AuthService {
 
     const tokens = await this.issueTokenPair(user);
     logger.info({ userId: user.id, event: "auth.register" }, "User registered");
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      actorName: user.name,
+      action: "USER_CREATED",
+      resourceType: "user",
+      resourceId: user.id,
+      result: "success",
+      severity: "info",
+    });
     return { user: toPublicUser(user), tokens, devVerificationToken };
   }
 
@@ -91,6 +103,22 @@ export class AuthService {
 
     if (!user || !passwordOk) {
       logger.warn({ event: "auth.login_failed", email: input.email }, "Login failed");
+      // No organization to scope this to when the email doesn't match a
+      // real account — audit it against the account's own org when known,
+      // otherwise there is nowhere legitimate to file the record, so it's
+      // structured logging only for that case (still captured, just not as
+      // an org-scoped audit entry no organization actually owns).
+      if (user) {
+        await this.audit.record({
+          organizationId: user.organizationId,
+          actorId: user.id,
+          actorName: user.name,
+          action: "LOGIN_FAILED",
+          resourceType: "session",
+          result: "failure",
+          severity: "medium",
+        });
+      }
       throw new UnauthorizedError("Invalid email or password.");
     }
 
@@ -103,6 +131,15 @@ export class AuthService {
     const tokens = await this.issueTokenPair(user);
     await this.users.update(user.id, { lastActiveAt: new Date().toISOString() });
     logger.info({ userId: user.id, event: "auth.login" }, "User logged in");
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      actorName: user.name,
+      action: "LOGIN",
+      resourceType: "session",
+      result: "success",
+      severity: "info",
+    });
     return { user: toPublicUser(user), tokens };
   }
 
@@ -111,6 +148,18 @@ export class AuthService {
       const claims = await verifyRefreshToken(refreshToken);
       refreshTokenStore.revokeFamily(claims.family);
       logger.info({ userId: claims.sub, event: "auth.logout" }, "User logged out");
+      const user = await this.users.findById(claims.sub);
+      if (user) {
+        await this.audit.record({
+          organizationId: user.organizationId,
+          actorId: user.id,
+          actorName: user.name,
+          action: "LOGOUT",
+          resourceType: "session",
+          result: "success",
+          severity: "info",
+        });
+      }
     } catch {
       // An already-invalid/expired token has nothing left to revoke —
       // logout is idempotent from the caller's point of view either way.
@@ -177,10 +226,22 @@ export class AuthService {
       throw new BadRequestError("This password reset link is invalid or has expired.");
     }
     const passwordHash = await hashPassword(newPassword);
-    await this.users.update(userId, { passwordHash });
+    const updated = await this.users.update(userId, { passwordHash });
     // Security-sensitive change — every existing session is invalidated (spec §16).
     refreshTokenStore.revokeAllForUser(userId);
     logger.info({ userId, event: "auth.password_reset" }, "Password reset completed");
+    if (updated) {
+      await this.audit.record({
+        organizationId: updated.organizationId,
+        actorId: updated.id,
+        actorName: updated.name,
+        action: "PASSWORD_CHANGED",
+        resourceType: "user",
+        resourceId: updated.id,
+        result: "success",
+        severity: "medium",
+      });
+    }
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
@@ -194,6 +255,16 @@ export class AuthService {
     await this.users.update(userId, { passwordHash });
     refreshTokenStore.revokeAllForUser(userId);
     logger.info({ userId, event: "auth.password_changed" }, "Password changed");
+    await this.audit.record({
+      organizationId: user.organizationId,
+      actorId: user.id,
+      actorName: user.name,
+      action: "PASSWORD_CHANGED",
+      resourceType: "user",
+      resourceId: user.id,
+      result: "success",
+      severity: "medium",
+    });
   }
 
   async verifyEmail(token: string): Promise<void> {
