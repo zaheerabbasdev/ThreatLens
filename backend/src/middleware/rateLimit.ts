@@ -43,3 +43,8 @@ export function createAuthRateLimit(): RequestHandler {
 export function createSensitiveActionRateLimit(): RequestHandler {
   return rateLimit({ ...shared, windowMs: 60 * 60_000, limit: 5 });
 }
+
+/** AI requests — STRICT (spec §23/§59: expensive, abusable, never unlimited). This limits request *frequency*; aiCostTracker's daily-per-org cap limits *spend* independently — see its header comment for why both are needed. */
+export function createAIRateLimit(): RequestHandler {
+  return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
+}

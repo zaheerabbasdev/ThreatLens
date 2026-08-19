@@ -33,6 +33,21 @@ const envSchema = z.object({
     })
     .optional()
     .transform((v) => (v === "" ? undefined : v)),
+
+  // Optional: when unset, AI endpoints fail with a clear "not configured"
+  // error rather than silently returning canned/fake content — unlike the
+  // database, a "fallback" AI provider would mean fabricated analysis,
+  // which is exactly what spec §52 forbids. See ai/aiProvider.ts.
+  OPENAI_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+  OPENAI_MODEL: z.string().trim().default("gpt-4o-mini"),
+  // Cost control (spec §60) — a hard ceiling independent of the per-route
+  // rate limiter, since that limits *requests*, not spend if request sizes
+  // vary. Per organization, per rolling 24h window.
+  AI_DAILY_REQUEST_LIMIT_PER_ORG: z.coerce.number().int().positive().default(200),
 });
 
 export type Env = z.infer<typeof envSchema>;

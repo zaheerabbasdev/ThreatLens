@@ -255,11 +255,82 @@ yourself once, anywhere with normal internet access, before deploying this again
 database.** The remaining 9 repositories follow the identical pattern and would benefit from
 the same treatment.
 
+## Phase 6 — AI/RAG
+
+An `AIProvider` abstraction (`src/ai/aiProvider.ts`) sits between every AI-touching route and
+OpenAI — no OpenAI-specific code exists anywhere outside `openaiProvider.ts` (spec §50/§51).
+`server.ts` constructs a real `OpenAIProvider` when `OPENAI_API_KEY` is set, and passes `null`
+otherwise; `AIService` treats `null` as "not configured" and returns a clean `503`, **never**
+silently falls back to fake/canned content (spec §52).
+
+**What this covers:**
+
+- **Secret redaction** (`src/ai/redaction.ts`, spec §53/§54) — a defense-in-depth backstop
+  applied to everything before it reaches a prompt: KEY=value-style credentials, Bearer
+  tokens, OpenAI/AWS/GitHub key formats, JWTs, Argon2/bcrypt hashes, and PEM private key
+  blocks are all stripped, recursively through nested objects
+- **Prompt-injection defense** (`src/ai/promptSafety.ts`, spec §55) — every piece of
+  org-controlled data (incident records, analyst questions) is wrapped in explicit
+  `<untrusted_data source="...">` markers with a preamble instructing the model to treat
+  enclosed text as data only, never as instructions, plus `pick()` for data minimization and
+  `truncateForPrompt()` for a hard prompt-size cap
+- **Structured, validated output** (spec §56) — every provider response is parsed as JSON and
+  checked against a Zod schema (`answerQuestionOutputSchema`, `analyzeIncidentOutputSchema`,
+  `generateRecommendationsOutputSchema`) before anything downstream sees it; malformed or
+  schema-violating output throws rather than passing through
+- **Human-in-the-loop recommendations** (spec §57/§58) — AI-generated recommendations are
+  persisted as `status: "pending"` and can only move to `approved`/`rejected` through
+  `POST /ai/recommendations/:id/review`, gated by `recommendations:approve` (super_admin and
+  security_admin only — the same two roles as the frontend's matrix), and every review is
+  audit-logged under the *reviewer's* real identity, resolved server-side the same way every
+  other actor-attribution in this codebase is
+- **AI-specific rate limiting** (spec §59) — a dedicated tier (`createAIRateLimit`, 15
+  requests/minute) sits in front of the whole `/ai` router, separate from the baseline API
+  limiter
+- **Cost tracking and a daily cap** (spec §60) — `AICostTracker` logs every call (org, user,
+  operation, tokens, duration, success) and `AIService` rejects new requests once an org
+  exceeds `AI_DAILY_REQUEST_LIMIT_PER_ORG` (default 200/day) in a rolling 24h window
+- **Incident analysis caching** — one analysis is cached per incident (`AIAnalysisRepository`)
+  rather than regenerated on every read; `?regenerate=true` forces a fresh call, so an
+  accidental page-refresh loop can't silently run up spend
+
+**Testing** — real, executable tests for every piece that doesn't require an actual network
+call to OpenAI:
+
+- `redaction.test.ts` (12 tests) and `promptSafety.test.ts` (8 tests) — pure logic, no mocking
+  needed
+- `openaiProvider.test.ts` (13 tests) — `OpenAIProvider` exercised against an injected fake
+  `ChatClient` (the same minimal structural interface the real `OpenAI` SDK client satisfies),
+  covering correct system/user message construction, JSON-object response format, untrusted-data
+  wrapping, redaction-before-prompt, Zod validation/rejection of malformed or out-of-schema
+  output, and `AIProviderError` wrapping of client failures
+- `ai.test.ts` (23 tests) — full HTTP-level integration suite against a `FakeAIProvider`
+  (same pattern as the fake `ChatClient`, one level up): auth required, permission-gated per
+  role (viewer can ask the assistant but not generate recommendations; only security_admin/
+  super_admin can review one), IDOR guard on incident-scoped endpoints, analysis caching and
+  forced regeneration, the full human-in-the-loop approve/reject flow with audit-trail
+  verification, and — with `aiProvider: null` — a clean `503` on every AI endpoint
+- Live-verified against the built server: unauthenticated → `401`, wrong permission → `403`,
+  no `OPENAI_API_KEY` → `503` on an actual request (not a fake success), and the server boots
+  cleanly both with and without a key present
+
+**Honest limitation**: none of the above sends a real request to OpenAI's API — there was no
+`OPENAI_API_KEY` available in this environment. `OpenAIProvider`'s actual network call
+(`this.client.chat.completions.create(...)`) is a thin, direct pass-through to the injected
+`ChatClient`, exercised end-to-end against the fake client above; only the literal "make an
+HTTPS request to api.openai.com and get a real model response back" step is unverified. Set
+`OPENAI_API_KEY` in `.env` and try the `/ai/assistant` endpoint against a running server to
+confirm that last step before relying on this in production.
+
+**Not built this phase**: RAG / vector search (spec §61–63) — named in Phase 6's scope but
+out of scope for this increment; the codebase has no vector index or retrieval step yet, only
+direct prompt construction from explicitly-selected context.
+
 ## Not yet built (later phases — nothing here is silently faked)
 
-- Real AI/OpenAI calls (Phase 6), real threat-intel provider integrations (Phase 7),
-  anomaly detection (Phase 8), a real correlation/risk engine (Phase 9), response workflows
-  (Phase 10)
+- RAG/vector search (Phase 6, deferred — see above), real threat-intel provider integrations
+  (Phase 7), anomaly detection (Phase 8), a real correlation/risk engine (Phase 9), response
+  workflows (Phase 10)
 - Broader adversarial tooling Phase 4 didn't cover: Semgrep static analysis, OWASP ZAP
   dynamic scanning, and CI-integrated Dependabot — spec §3 devsecops recommendations that need
   either tool access or a CI pipeline this project doesn't have yet

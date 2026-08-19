@@ -18,6 +18,7 @@ export function createApiV1Router(deps: {
   mitreRouter: Router;
   reportRouter: Router;
   graphRouter: Router;
+  aiRouter: Router;
 }): Router {
   const router = Router();
   router.use("/health", healthRouter);
@@ -32,5 +33,6 @@ export function createApiV1Router(deps: {
   router.use("/mitre", deps.mitreRouter);
   router.use("/reports", deps.reportRouter);
   router.use("/threat-graph", deps.graphRouter);
+  router.use("/ai", deps.aiRouter);
   return router;
 }

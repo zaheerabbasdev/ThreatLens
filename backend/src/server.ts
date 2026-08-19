@@ -31,6 +31,26 @@ import { InMemoryThreatActorRepository } from "./repositories/threatActor.reposi
 import { MongoThreatActorRepository } from "./repositories/threatActor.repository.mongo.js";
 import { seedThreatActors } from "./repositories/threatActor.seed.js";
 import { InMemoryAuditLogRepository } from "./repositories/auditLog.repository.js";
+import { InMemoryRecommendationRepository } from "./repositories/recommendation.repository.js";
+import { InMemoryAIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
+import { OpenAIProvider } from "./ai/openaiProvider.js";
+import OpenAI from "openai";
+import type { AIProvider } from "./ai/aiProvider.js";
+
+/**
+ * null when OPENAI_API_KEY isn't set — AIService treats that as "AI
+ * features aren't configured" and returns a clean 503, never silently
+ * falling back to fake content (spec §52; see ai/aiProvider.ts's header
+ * comment for why that's different from the MongoDB fallback above).
+ */
+function buildAIProvider(): AIProvider | null {
+  if (!env.OPENAI_API_KEY) {
+    logger.info("OPENAI_API_KEY not set — AI features are disabled");
+    return null;
+  }
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  return new OpenAIProvider(client, env.OPENAI_MODEL);
+}
 
 /**
  * Builds every repository, seeded with the same demo data either way — the
@@ -66,6 +86,11 @@ async function buildRepositories(): Promise<AppDependencies> {
     // Audit logs are never seeded — an empty trail at startup is correct
     // either way, in-memory or Mongo.
     const auditLogRepository = new InMemoryAuditLogRepository();
+    // AI recommendations/analyses aren't Mongo-backed yet (Phase 6 is new;
+    // this follows Phase 3's original scope, not Phase 5's) — same
+    // in-memory tradeoff every other collection had before its own turn.
+    const recommendationRepository = new InMemoryRecommendationRepository();
+    const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
 
     return {
       userRepository,
@@ -78,6 +103,9 @@ async function buildRepositories(): Promise<AppDependencies> {
       mitreRepository,
       threatActorRepository,
       auditLogRepository,
+      recommendationRepository,
+      aiAnalysisRepository,
+      aiProvider: buildAIProvider(),
     };
   }
 
@@ -102,6 +130,8 @@ async function buildRepositories(): Promise<AppDependencies> {
   const threatActorRepository = new InMemoryThreatActorRepository();
   seedThreatActors(threatActorRepository);
   const auditLogRepository = new InMemoryAuditLogRepository();
+  const recommendationRepository = new InMemoryRecommendationRepository();
+  const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
 
   return {
     userRepository,
@@ -114,6 +144,9 @@ async function buildRepositories(): Promise<AppDependencies> {
     mitreRepository,
     threatActorRepository,
     auditLogRepository,
+    recommendationRepository,
+    aiAnalysisRepository,
+    aiProvider: buildAIProvider(),
   };
 }
 

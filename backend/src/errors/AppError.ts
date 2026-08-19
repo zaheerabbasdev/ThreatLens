@@ -63,3 +63,10 @@ export class TooManyRequestsError extends AppError {
     super(429, "TOO_MANY_REQUESTS", message);
   }
 }
+
+/** A dependency this request needs isn't available right now — an unconfigured or failing AI provider, for example. Distinct from a 500: the server itself is fine, one specific capability isn't. */
+export class ServiceUnavailableError extends AppError {
+  constructor(message = "This feature is temporarily unavailable.") {
+    super(503, "SERVICE_UNAVAILABLE", message);
+  }
+}

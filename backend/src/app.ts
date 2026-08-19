@@ -63,6 +63,14 @@ import { seedThreatActors } from "./repositories/threatActor.seed.js";
 import { createGraphRouter } from "./threatGraph/graph.routes.js";
 import { createGraphController } from "./threatGraph/graph.controller.js";
 import { GraphService } from "./threatGraph/graph.service.js";
+import { InMemoryRecommendationRepository } from "./repositories/recommendation.repository.js";
+import type { RecommendationRepository } from "./repositories/recommendation.repository.js";
+import { InMemoryAIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
+import type { AIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
+import { createAIRouter } from "./ai/ai.routes.js";
+import { createAIController } from "./ai/ai.controller.js";
+import { AIService } from "./ai/ai.service.js";
+import type { AIProvider } from "./ai/aiProvider.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -76,6 +84,10 @@ export interface AppDependencies {
   mitreRepository: MitreRepository;
   reportRepository: ReportRepository;
   threatActorRepository: ThreatActorRepository;
+  recommendationRepository: RecommendationRepository;
+  aiAnalysisRepository: AIAnalysisRepository;
+  /** null when OPENAI_API_KEY isn't configured — AIService handles that explicitly rather than silently falling back to fake content (spec §52; see ai/aiProvider.ts). */
+  aiProvider: AIProvider | null;
 }
 
 /**
@@ -111,6 +123,9 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const mitreRepository = deps.mitreRepository ?? seedMitreRepository();
   const reportRepository = deps.reportRepository ?? new InMemoryReportRepository();
   const threatActorRepository = deps.threatActorRepository ?? seedThreatActorRepository();
+  const recommendationRepository = deps.recommendationRepository ?? new InMemoryRecommendationRepository();
+  const aiAnalysisRepository = deps.aiAnalysisRepository ?? new InMemoryAIAnalysisRepository();
+  const aiProvider = deps.aiProvider ?? null;
 
   // Constructed first — every other service below records through it.
   const auditService = new AuditService(auditLogRepository);
@@ -171,6 +186,17 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const graphController = createGraphController(graphService);
   const graphRouter = createGraphRouter(graphController);
 
+  const aiService = new AIService(
+    aiProvider,
+    incidentRepository,
+    recommendationRepository,
+    aiAnalysisRepository,
+    userRepository,
+    auditService,
+  );
+  const aiController = createAIController(aiService);
+  const aiRouter = createAIRouter(aiController);
+
   const apiV1Router = createApiV1Router({
     authRouter,
     incidentsRouter,
@@ -179,6 +205,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     usersRouter,
     organizationRouter,
     iocRouter,
+    aiRouter,
     auditRouter,
     mitreRouter,
     reportRouter,
