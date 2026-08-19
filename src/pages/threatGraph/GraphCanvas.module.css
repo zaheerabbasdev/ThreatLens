@@ -1,0 +1,38 @@
+.root {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.root :global(.react-flow__attribution) {
+  display: none;
+}
+
+.root :global(.react-flow__controls) {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.root :global(.react-flow__controls-button) {
+  background: transparent;
+  border-bottom: 1px solid var(--border-subtle);
+  fill: var(--text-secondary);
+  stroke: var(--text-secondary);
+}
+.root :global(.react-flow__controls-button:hover) {
+  background: var(--bg-elevated-hover);
+}
+
+.root :global(.react-flow__minimap) {
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}

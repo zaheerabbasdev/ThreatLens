@@ -1,0 +1,68 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 1280px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.search {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.filter {
+  flex: 0 1 200px;
+  min-width: 160px;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.identityText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.email {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mfaOn,
+.mfaOff {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.mfaOn {
+  color: var(--status-success);
+}
+
+.mfaOff {
+  color: var(--text-tertiary);
+}
+
+.timestamp {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}

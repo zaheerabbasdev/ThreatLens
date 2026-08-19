@@ -1,0 +1,43 @@
+.root {
+  /* min-width: 0 overrides the browser default of `auto` on flex/grid
+     items, which otherwise refuses to shrink below the content's
+     intrinsic width — the classic cause of a grid/flex item silently
+     forcing its whole row wider than the viewport ("grid blowout"). */
+  min-width: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.padded {
+  padding: var(--space-6);
+}
+
+.interactive {
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+.interactive:hover {
+  border-color: var(--border-strong);
+}
+.interactive:active {
+  transform: translateY(1px);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+  gap: var(--space-3);
+}
+
+.title {
+  min-width: 0;
+  font-size: var(--text-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+}

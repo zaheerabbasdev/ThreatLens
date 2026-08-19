@@ -1,0 +1,49 @@
+.mfaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.mfaText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mfaLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--text-sm);
+}
+
+.mfaHint {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.alert {
+  margin-bottom: var(--space-4);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 420px;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: var(--space-5);
+}

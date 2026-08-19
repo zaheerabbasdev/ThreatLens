@@ -1,0 +1,33 @@
+.root {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100%;
+}
+
+.desktopSidebar {
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.content {
+  flex: 1;
+  padding: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .root {
+    grid-template-columns: 1fr;
+  }
+  .desktopSidebar {
+    display: none;
+  }
+  .content {
+    padding: var(--space-4);
+  }
+}

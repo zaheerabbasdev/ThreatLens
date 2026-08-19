@@ -1,0 +1,78 @@
+.row {
+  display: flex;
+  gap: var(--space-3);
+  max-width: 640px;
+}
+
+.assistantRow {
+  align-self: flex-start;
+}
+
+.userRow {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.assistantAvatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-subtle-bg);
+  color: var(--accent-400);
+}
+
+.bubbleColumn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.userRow .bubbleColumn {
+  align-items: flex-end;
+}
+
+.bubble {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.assistantBubble {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-top-left-radius: var(--radius-sm);
+}
+
+.userBubble {
+  background: var(--accent-500);
+  color: #ffffff;
+  border-top-right-radius: var(--radius-sm);
+}
+
+.aiTag {
+  display: block;
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-400);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-1);
+}
+
+.text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.time {
+  margin-top: var(--space-1);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 0 var(--space-1);
+}

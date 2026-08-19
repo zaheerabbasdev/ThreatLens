@@ -1,0 +1,55 @@
+.root {
+  display: flex;
+  flex-direction: column;
+}
+
+.infoTrigger {
+  color: var(--text-tertiary);
+  display: inline-flex;
+}
+.infoTrigger:hover {
+  color: var(--text-primary);
+}
+
+.scoreRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.scoreValue {
+  font-family: var(--font-mono);
+  font-size: 44px;
+  font-weight: var(--font-weight-bold);
+  line-height: 1;
+}
+
+.factors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.factor {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+}
+.factor:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.factorLabel {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.factorDescription {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--line-height-relaxed);
+}

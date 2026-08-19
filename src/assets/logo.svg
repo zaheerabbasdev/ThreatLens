@@ -1,0 +1,7 @@
+<svg width="28" height="28" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ThreatLens logo">
+  <path d="M32 6 L54 14 V30 C54 44.5 45 54 32 59 C19 54 10 44.5 10 30 V14 Z" fill="#10151C" stroke="#2F6FED" stroke-width="2.25"/>
+  <path d="M32 15 L46.5 20.5 V30.5 C46.5 40.5 40.5 47.6 32 51.2 C23.5 47.6 17.5 40.5 17.5 30.5 V20.5 Z" fill="none" stroke="#3A8DE5" stroke-width="1.5" opacity="0.55"/>
+  <circle cx="32" cy="30" r="7" fill="none" stroke="#2F6FED" stroke-width="2.75"/>
+  <circle cx="32" cy="30" r="2.25" fill="#2F6FED"/>
+  <path d="M32 22.5 V16 M39.2 26.4 L44.9 23.1 M39.2 33.6 L44.9 36.9 M24.8 26.4 L19.1 23.1 M24.8 33.6 L19.1 36.9" stroke="#2F6FED" stroke-width="1.75" stroke-linecap="round" opacity="0.85"/>
+</svg>

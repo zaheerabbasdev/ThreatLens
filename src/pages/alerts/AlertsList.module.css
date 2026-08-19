@@ -1,0 +1,25 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  max-width: 1280px;
+}
+
+.titleCell {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 360px;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.source {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.timestamp {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}

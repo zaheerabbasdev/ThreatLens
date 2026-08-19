@@ -1,0 +1,140 @@
+/**
+ * ThreatLens design tokens.
+ * Dark-first, professional security-product palette.
+ * Rule: no purple, no decorative gradients, no neon glow.
+ */
+:root {
+  /* Surfaces */
+  --bg-canvas: #0b0f14;
+  --bg-surface: #10151c;
+  --bg-elevated: #161c25;
+  --bg-elevated-hover: #1b222c;
+  --bg-overlay: rgba(6, 9, 13, 0.72);
+  --bg-inset: #0d1218;
+
+  /* Borders */
+  --border-subtle: #212932;
+  --border-default: #2c3742;
+  --border-strong: #3a4756;
+  --border-focus: #2f6fed;
+
+  /* Text */
+  --text-primary: #e7ecf3;
+  --text-secondary: #98a5b8;
+  --text-tertiary: #7f8ea0;
+  --text-inverse: #0b0f14;
+  --text-disabled: #495363;
+
+  /* Brand / interactive (blue — never purple) */
+  --accent-400: #5590f2;
+  --accent-500: #2f6fed;
+  --accent-600: #2358c4;
+  --accent-700: #1a469a;
+  --accent-subtle-bg: rgba(47, 111, 237, 0.12);
+  --accent-subtle-border: rgba(47, 111, 237, 0.32);
+
+  /* Severity system — always paired with icon + label in UI, never color alone.
+     critical/low foregrounds are lifted slightly from the "pure" brand hue so
+     they still clear 4.5:1 text contrast against their own tinted badge
+     background across every surface it can render on (canvas/surface/elevated). */
+  --severity-critical: #ea696e;
+  --severity-critical-bg: rgba(234, 105, 110, 0.12);
+  --severity-critical-border: rgba(234, 105, 110, 0.35);
+
+  --severity-high: #f2994a;
+  --severity-high-bg: rgba(242, 153, 74, 0.12);
+  --severity-high-border: rgba(242, 153, 74, 0.35);
+
+  --severity-medium: #f2c94c;
+  --severity-medium-bg: rgba(242, 201, 76, 0.12);
+  --severity-medium-border: rgba(242, 201, 76, 0.35);
+
+  --severity-low: #4c97e7;
+  --severity-low-bg: rgba(76, 151, 231, 0.12);
+  --severity-low-border: rgba(76, 151, 231, 0.35);
+
+  --severity-info: #8a94a6;
+  --severity-info-bg: rgba(138, 148, 166, 0.12);
+  --severity-info-border: rgba(138, 148, 166, 0.35);
+
+  /* Semantic status (non-severity: success/warn/danger/info banners) */
+  --status-success: #33b17a;
+  --status-success-bg: rgba(51, 177, 122, 0.12);
+  --status-warning: #f2c94c;
+  --status-warning-bg: rgba(242, 201, 76, 0.12);
+  --status-danger: #e5484d;
+  --status-danger-bg: rgba(229, 72, 77, 0.12);
+  --status-info: #3a8de5;
+  --status-info-bg: rgba(58, 141, 229, 0.12);
+
+  /* Typography */
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.65;
+
+  /* Spacing (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radius — restrained, not overly rounded */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Shadows — subtle elevation only, no glow */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* Layout */
+  --sidebar-width: 264px;
+  --sidebar-width-collapsed: 72px;
+  --topbar-height: 60px;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-drawer: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

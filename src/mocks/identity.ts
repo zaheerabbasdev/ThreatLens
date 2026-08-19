@@ -1,0 +1,82 @@
+import type { Organization, User } from "@/types";
+
+export const MOCK_ORGANIZATION: Organization = {
+  id: "org_northwind",
+  name: "Northwind Retail Group",
+  slug: "northwind-retail",
+  plan: "team",
+  createdAt: "2024-02-11T09:00:00Z",
+};
+
+export const MOCK_USERS: User[] = [
+  {
+    id: "user_1",
+    organizationId: "org_northwind",
+    name: "Avery Chen",
+    email: "avery.chen@northwind.test",
+    role: "super_admin",
+    status: "active",
+    title: "Head of Security",
+    avatarSeed: "user_1",
+    lastActiveAt: "2026-08-15T13:42:00Z",
+    createdAt: "2024-02-11T09:05:00Z",
+    mfaEnabled: true,
+  },
+  {
+    id: "user_2",
+    organizationId: "org_northwind",
+    name: "Priya Natarajan",
+    email: "priya.n@northwind.test",
+    role: "security_admin",
+    status: "active",
+    title: "Security Operations Manager",
+    avatarSeed: "user_2",
+    lastActiveAt: "2026-08-15T12:10:00Z",
+    createdAt: "2024-03-02T09:05:00Z",
+    mfaEnabled: true,
+  },
+  {
+    id: "user_3",
+    organizationId: "org_northwind",
+    name: "Diego Alvarez",
+    email: "diego.alvarez@northwind.test",
+    role: "security_analyst",
+    status: "active",
+    title: "Security Analyst II",
+    avatarSeed: "user_3",
+    lastActiveAt: "2026-08-15T14:05:00Z",
+    createdAt: "2024-05-19T09:05:00Z",
+    mfaEnabled: true,
+  },
+  {
+    id: "user_4",
+    organizationId: "org_northwind",
+    name: "Morgan Blake",
+    email: "morgan.blake@northwind.test",
+    role: "security_analyst",
+    status: "active",
+    title: "Security Analyst",
+    avatarSeed: "user_4",
+    lastActiveAt: "2026-08-14T18:22:00Z",
+    createdAt: "2024-07-08T09:05:00Z",
+    mfaEnabled: false,
+  },
+  {
+    id: "user_5",
+    organizationId: "org_northwind",
+    name: "Sam Whitfield",
+    email: "sam.whitfield@northwind.test",
+    role: "viewer",
+    status: "active",
+    title: "IT Director",
+    avatarSeed: "user_5",
+    lastActiveAt: "2026-08-13T09:30:00Z",
+    createdAt: "2024-09-14T09:05:00Z",
+    mfaEnabled: false,
+  },
+];
+
+export const DEMO_CREDENTIALS = {
+  email: "avery.chen@northwind.test",
+  password: "ThreatLens#Demo1",
+} as const;

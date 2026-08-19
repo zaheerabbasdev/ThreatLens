@@ -1,0 +1,73 @@
+.root {
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}
+
+.menuButton {
+  display: none;
+  color: var(--text-secondary);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+}
+.menuButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.roleBadge {
+  display: none;
+}
+
+.iconButton {
+  color: var(--text-secondary);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+}
+.iconButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.userTrigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+}
+.userTrigger:hover {
+  background: var(--bg-elevated);
+}
+
+.userName {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+}
+
+@media (min-width: 640px) {
+  .roleBadge {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 900px) {
+  .menuButton {
+    display: inline-flex;
+  }
+  .userName {
+    display: none;
+  }
+}
