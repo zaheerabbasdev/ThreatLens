@@ -15,6 +15,7 @@ async function buildApp() {
     id: "user_suspended",
     organizationId: "org_northwind",
     name: "Suspended User",
+    avatarSeed: "user_suspended",
     email: "suspended@northwind.test",
     passwordHash: await hashPassword(DEMO_PASSWORD),
     role: "viewer",

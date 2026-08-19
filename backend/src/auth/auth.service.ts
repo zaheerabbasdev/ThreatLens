@@ -8,6 +8,8 @@ import { passwordResetTokens, emailVerificationTokens } from "./singleUseTokenSt
 import { toPublicUser } from "../types/user.js";
 import type { PublicUser, User } from "../types/user.js";
 import type { UserRepository } from "../repositories/user.repository.js";
+import type { OrganizationRepository } from "../repositories/organization.repository.js";
+import { slugify } from "../repositories/organization.repository.js";
 import type { RegisterInput, LoginInput } from "./schemas.js";
 import { logger } from "../utils/logger.js";
 
@@ -28,7 +30,10 @@ export interface AuthResult {
 }
 
 export class AuthService {
-  constructor(private readonly users: UserRepository) {}
+  constructor(
+    private readonly users: UserRepository,
+    private readonly organizations: OrganizationRepository,
+  ) {}
 
   private async issueTokenPair(user: User, family?: string): Promise<AuthTokens> {
     const [accessToken, refresh] = await Promise.all([
@@ -45,9 +50,18 @@ export class AuthService {
       throw new ConflictError("An account with this email already exists.");
     }
 
+    const organizationId = randomUUID();
+    await this.organizations.create({
+      id: organizationId,
+      name: input.organization,
+      slug: slugify(input.organization),
+      plan: "starter",
+      createdAt: new Date().toISOString(),
+    });
+
     const passwordHash = await hashPassword(input.password);
     const user = await this.users.create({
-      organizationId: randomUUID(),
+      organizationId,
       name: input.name,
       email: input.email,
       passwordHash,

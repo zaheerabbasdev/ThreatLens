@@ -44,11 +44,44 @@ follow:
   author name in the request body is ignored, not trusted
 - RBAC per-route via the existing `requirePermission`, exercised against every seeded role
 
+**Alerts** (increment 4): `GET /alerts`, `GET /alerts/summary`, `GET /alerts/:id`,
+`PATCH /alerts/:id/status` — same pattern as Incidents (tenant-scoped repository, IDOR-safe
+`getById`, RBAC per route), applied to a simpler domain shape with no notes/assignment.
+
+**Investigations** (increment 5): `GET /investigations`, `POST /investigations`,
+`GET /investigations/:id`, `PATCH /investigations/:id/status`, `POST /investigations/:id/notes`,
+link/unlink incident and indicator. The richest module so far:
+
+- Every actor name (who created it, who changed status, who added a note, who linked
+  something) is resolved server-side from the authenticated session — never trusted from the
+  request body, verified by a test that sends a spoofed name and asserts it's ignored
+- Cross-references are validated, not just the primary resource: creating an investigation
+  checks the lead analyst belongs to the caller's org; linking an incident checks that
+  incident exists in the caller's org too (deliberately stricter than the frontend mock, which
+  allows a dangling reference — see the code comment for why)
+- Linking an indicator has no existence check yet, honestly, because there's no Threat Intel
+  module/repository to check against — noted in code and here, not silently faked
+
+**Users & Organization** (increment 6): `GET /users`, `GET /users/:id`,
+`PATCH /users/:id/profile`, `PATCH /users/:id/mfa`, `PATCH /users/:id/role`,
+`PATCH /users/:id/status`, plus `GET`/`PATCH /organization`. Also fixed a real gap: `register()`
+was generating an organizationId but never actually creating an Organization record — it now
+does, using the submitted organization name (verified by a test that registers, then fetches
+`/organization` and checks the name round-tripped).
+
+- Profile/MFA edits are self-service — every role can edit their own, gated in the service
+  layer (self, or `users:manage`), not at the route, since route-level RBAC can't express "your
+  own record specifically"
+- Role/status changes require `users:manage` (super_admin only — security_admin is
+  deliberately excluded from that one permission) **and** can never target your own account,
+  even for an admin — a safety rule beyond what the frontend mock enforces, preventing an
+  admin from accidentally locking themselves out with nobody left to reverse it
+
 **Not yet built** (later increments of this same phase, or later phases entirely — nothing
 below is silently faked):
 
-- Remaining domain routes (alerts, investigations, threat intel, users, reports, audit logs,
-  MITRE, threat graph) — next increments, following the incidents pattern
+- Remaining domain routes (threat intel, reports, audit logs, MITRE, threat graph) — next
+  increments, following the established pattern
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw

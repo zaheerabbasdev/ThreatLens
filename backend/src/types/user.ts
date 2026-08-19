@@ -14,6 +14,9 @@ export interface User {
   passwordHash: string;
   role: Role;
   status: UserStatus;
+  title?: string;
+  /** Seeds the frontend's deterministic avatar color — always equal to `id`; never independently settable, see UserRepository.create. */
+  avatarSeed: string;
   mfaEnabled: boolean;
   emailVerifiedAt: string | null;
   createdAt: string;

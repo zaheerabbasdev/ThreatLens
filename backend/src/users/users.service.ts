@@ -1,0 +1,102 @@
+import { BadRequestError, ForbiddenError, NotFoundError } from "../errors/AppError.js";
+import type { UserRepository, UserListParams } from "../repositories/user.repository.js";
+import { toPublicUser } from "../types/user.js";
+import type { PublicUser, Role, UserStatus } from "../types/user.js";
+import type { PaginatedResult } from "../types/common.js";
+import { logger } from "../utils/logger.js";
+
+export interface UpdateProfileInput {
+  name: string;
+  title?: string;
+}
+
+export class UsersService {
+  constructor(private readonly users: UserRepository) {}
+
+  async list(organizationId: string, params: UserListParams): Promise<PaginatedResult<PublicUser>> {
+    const result = await this.users.list(organizationId, params);
+    return { ...result, items: result.items.map(toPublicUser) };
+  }
+
+  async getById(organizationId: string, id: string): Promise<PublicUser> {
+    const user = await this.getInOrg(organizationId, id);
+    return toPublicUser(user);
+  }
+
+  /**
+   * A user can only be modified by themselves or someone with `users:manage`
+   * — that permission is already required at the route level for
+   * updateRole/updateStatus, but updateProfile/setMfaEnabled are
+   * self-service actions too, so the check here is conditional rather than
+   * a blanket route-level gate.
+   */
+  private assertCanModify(callerId: string, callerCanManageUsers: boolean, targetId: string): void {
+    if (callerId === targetId || callerCanManageUsers) return;
+    throw new ForbiddenError("You can only update your own profile.");
+  }
+
+  async updateProfile(
+    organizationId: string,
+    callerId: string,
+    callerCanManageUsers: boolean,
+    targetId: string,
+    input: UpdateProfileInput,
+  ): Promise<PublicUser> {
+    await this.getInOrg(organizationId, targetId);
+    this.assertCanModify(callerId, callerCanManageUsers, targetId);
+    const updated = await this.users.update(targetId, { name: input.name, title: input.title });
+    if (!updated) throw new NotFoundError("The requested user was not found.");
+    return toPublicUser(updated);
+  }
+
+  async setMfaEnabled(
+    organizationId: string,
+    callerId: string,
+    callerCanManageUsers: boolean,
+    targetId: string,
+    enabled: boolean,
+  ): Promise<PublicUser> {
+    await this.getInOrg(organizationId, targetId);
+    this.assertCanModify(callerId, callerCanManageUsers, targetId);
+    const updated = await this.users.update(targetId, { mfaEnabled: enabled });
+    if (!updated) throw new NotFoundError("The requested user was not found.");
+    return toPublicUser(updated);
+  }
+
+  /**
+   * Role/status changes are admin-only (route requires users:manage) — but
+   * even an admin can't act on themselves here. That's a deliberate safety
+   * rule, not something the frontend mock enforces: without it, an admin
+   * could accidentally demote or suspend their own account with no one
+   * left able to reverse it.
+   */
+  async updateRole(organizationId: string, callerId: string, targetId: string, role: Role): Promise<PublicUser> {
+    await this.getInOrg(organizationId, targetId);
+    if (callerId === targetId) {
+      throw new BadRequestError("You can't change your own role.");
+    }
+    const updated = await this.users.update(targetId, { role });
+    if (!updated) throw new NotFoundError("The requested user was not found.");
+    logger.info({ organizationId, targetId, role, event: "user.role_changed" }, "User role changed");
+    return toPublicUser(updated);
+  }
+
+  async updateStatus(organizationId: string, callerId: string, targetId: string, status: UserStatus): Promise<PublicUser> {
+    await this.getInOrg(organizationId, targetId);
+    if (callerId === targetId) {
+      throw new BadRequestError("You can't change your own account status.");
+    }
+    const updated = await this.users.update(targetId, { status });
+    if (!updated) throw new NotFoundError("The requested user was not found.");
+    logger.info({ organizationId, targetId, status, event: "user.status_changed" }, "User status changed");
+    return toPublicUser(updated);
+  }
+
+  private async getInOrg(organizationId: string, id: string) {
+    const user = await this.users.findById(id);
+    if (!user || user.organizationId !== organizationId) {
+      throw new NotFoundError("The requested user was not found.");
+    }
+    return user;
+  }
+}

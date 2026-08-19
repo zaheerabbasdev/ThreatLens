@@ -17,11 +17,32 @@ import type { IncidentRepository } from "./repositories/incident.repository.js";
 import { createIncidentsRouter } from "./incidents/incidents.routes.js";
 import { createIncidentsController } from "./incidents/incidents.controller.js";
 import { IncidentsService } from "./incidents/incidents.service.js";
+import { InMemoryAlertRepository } from "./repositories/alert.repository.js";
+import type { AlertRepository } from "./repositories/alert.repository.js";
+import { createAlertsRouter } from "./alerts/alerts.routes.js";
+import { createAlertsController } from "./alerts/alerts.controller.js";
+import { AlertsService } from "./alerts/alerts.service.js";
+import { InMemoryInvestigationRepository } from "./repositories/investigation.repository.js";
+import type { InvestigationRepository } from "./repositories/investigation.repository.js";
+import { createInvestigationsRouter } from "./investigations/investigations.routes.js";
+import { createInvestigationsController } from "./investigations/investigations.controller.js";
+import { InvestigationsService } from "./investigations/investigations.service.js";
+import { InMemoryOrganizationRepository } from "./repositories/organization.repository.js";
+import type { OrganizationRepository } from "./repositories/organization.repository.js";
+import { createUsersRouter } from "./users/users.routes.js";
+import { createUsersController } from "./users/users.controller.js";
+import { UsersService } from "./users/users.service.js";
+import { createOrganizationRouter } from "./organization/organization.routes.js";
+import { createOrganizationController } from "./organization/organization.controller.js";
+import { OrganizationService } from "./organization/organization.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
   userRepository: UserRepository;
   incidentRepository: IncidentRepository;
+  alertRepository: AlertRepository;
+  investigationRepository: InvestigationRepository;
+  organizationRepository: OrganizationRepository;
 }
 
 /**
@@ -32,8 +53,11 @@ export interface AppDependencies {
 export function createApp(deps: Partial<AppDependencies> = {}) {
   const userRepository = deps.userRepository ?? new InMemoryUserRepository();
   const incidentRepository = deps.incidentRepository ?? new InMemoryIncidentRepository();
+  const alertRepository = deps.alertRepository ?? new InMemoryAlertRepository();
+  const investigationRepository = deps.investigationRepository ?? new InMemoryInvestigationRepository();
+  const organizationRepository = deps.organizationRepository ?? new InMemoryOrganizationRepository();
 
-  const authService = new AuthService(userRepository);
+  const authService = new AuthService(userRepository, organizationRepository);
   const authController = createAuthController(authService);
   const authRouter = createAuthRouter(authController);
 
@@ -41,7 +65,30 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const incidentsController = createIncidentsController(incidentsService);
   const incidentsRouter = createIncidentsRouter(incidentsController);
 
-  const apiV1Router = createApiV1Router({ authRouter, incidentsRouter });
+  const alertsService = new AlertsService(alertRepository);
+  const alertsController = createAlertsController(alertsService);
+  const alertsRouter = createAlertsRouter(alertsController);
+
+  const investigationsService = new InvestigationsService(investigationRepository, incidentRepository, userRepository);
+  const investigationsController = createInvestigationsController(investigationsService);
+  const investigationsRouter = createInvestigationsRouter(investigationsController);
+
+  const usersService = new UsersService(userRepository);
+  const usersController = createUsersController(usersService);
+  const usersRouter = createUsersRouter(usersController);
+
+  const organizationService = new OrganizationService(organizationRepository);
+  const organizationController = createOrganizationController(organizationService);
+  const organizationRouter = createOrganizationRouter(organizationController);
+
+  const apiV1Router = createApiV1Router({
+    authRouter,
+    incidentsRouter,
+    alertsRouter,
+    investigationsRouter,
+    usersRouter,
+    organizationRouter,
+  });
 
   const app = express();
 
