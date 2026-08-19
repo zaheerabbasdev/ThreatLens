@@ -12,6 +12,8 @@ import { InMemoryOrganizationRepository } from "./repositories/organization.repo
 import { seedDemoOrganization } from "./repositories/organization.seed.js";
 import { InMemoryIndicatorRepository } from "./repositories/indicator.repository.js";
 import { seedDemoIndicators } from "./repositories/indicator.seed.js";
+import { InMemoryReportRepository } from "./repositories/report.repository.js";
+import { seedDemoReports } from "./repositories/report.seed.js";
 
 // Phase 5 replaces these with a real database — nothing above this line's
 // call site needs to change when that happens (AppDependencies is the seam).
@@ -27,6 +29,8 @@ const indicatorRepository = new InMemoryIndicatorRepository();
 seedDemoIndicators(indicatorRepository);
 const investigationRepository = new InMemoryInvestigationRepository();
 seedDemoInvestigations(investigationRepository);
+const reportRepository = new InMemoryReportRepository();
+seedDemoReports(reportRepository);
 
 const app = createApp({
   userRepository,
@@ -35,6 +39,7 @@ const app = createApp({
   investigationRepository,
   organizationRepository,
   indicatorRepository,
+  reportRepository,
 });
 
 const server = app.listen(env.PORT, () => {

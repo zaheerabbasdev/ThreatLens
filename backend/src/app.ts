@@ -52,6 +52,11 @@ import { seedMitreData } from "./repositories/mitre.seed.js";
 import { createMitreRouter } from "./mitre/mitre.routes.js";
 import { createMitreController } from "./mitre/mitre.controller.js";
 import { MitreService } from "./mitre/mitre.service.js";
+import { InMemoryReportRepository } from "./repositories/report.repository.js";
+import type { ReportRepository } from "./repositories/report.repository.js";
+import { createReportRouter } from "./reports/report.routes.js";
+import { createReportController } from "./reports/report.controller.js";
+import { ReportService } from "./reports/report.service.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -63,6 +68,7 @@ export interface AppDependencies {
   indicatorRepository: IndicatorRepository;
   auditLogRepository: AuditLogRepository;
   mitreRepository: MitreRepository;
+  reportRepository: ReportRepository;
 }
 
 /**
@@ -89,6 +95,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   // so the default (when no test/caller supplies its own) is pre-seeded
   // rather than left blank.
   const mitreRepository = deps.mitreRepository ?? seedMitreRepository();
+  const reportRepository = deps.reportRepository ?? new InMemoryReportRepository();
 
   // Constructed first — every other service below records through it.
   const auditService = new AuditService(auditLogRepository);
@@ -134,6 +141,17 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const mitreController = createMitreController(mitreService);
   const mitreRouter = createMitreRouter(mitreController);
 
+  const reportService = new ReportService(
+    reportRepository,
+    incidentRepository,
+    indicatorRepository,
+    auditLogRepository,
+    userRepository,
+    auditService,
+  );
+  const reportController = createReportController(reportService);
+  const reportRouter = createReportRouter(reportController);
+
   const apiV1Router = createApiV1Router({
     authRouter,
     incidentsRouter,
@@ -144,6 +162,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     iocRouter,
     auditRouter,
     mitreRouter,
+    reportRouter,
   });
 
   const app = express();

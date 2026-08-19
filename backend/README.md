@@ -135,11 +135,29 @@ interface, so nothing built against it can alter or remove a record even by acci
 - No permission dedicated to this module exists in the matrix (the frontend doesn't have one
   either) — gated behind `threat_graph:read`, which every seeded role already has
 
+**Reports** (increment 10): `GET /reports`, `POST /reports`, `GET /reports/:id` — all 5 report
+types (security summary, incident, threat intelligence, risk, activity).
+
+- Summaries are computed from real org data at generation time, the same principle the
+  frontend mock already followed — but drawing on real audit logs and indicator counts too,
+  since those repositories now exist server-side and the mock's equivalents didn't
+- `risk_report` is the one honest exception: there's no risk-scoring engine yet (spec §48/§49,
+  a later phase, and a risk score is explicitly something this platform never lets AI or a
+  report layer invent on its own) — rather than fabricate a number, its summary says plainly
+  that scoring isn't available yet, verified by a test asserting no numeric score appears
+- `generatedBy` is resolved server-side from the authenticated session, same non-negotiable
+  pattern as every other actor-attribution field in this backend
+- Seeded reports are fixed historical snapshots on purpose, not live-recomputed at startup — a
+  report reflects the org's data at the moment it was generated, so it's correct for a report
+  from when there were more seeded incidents to still quote that original number
+
 **Not yet built** (later increments of this same phase, or later phases entirely — nothing
 below is silently faked):
 
-- Remaining domain routes (reports, threat graph) — next increments, following the
-  established pattern
+- Threat Graph — the last domain module. Unlike the others, it likely needs no new persisted
+  state of its own: the frontend's graph view is just nodes/edges assembled from
+  incidents/alerts/indicators/users/MITRE data that all already exist server-side now, so this
+  is expected to be a thinner composition layer rather than a new repository.
 - A real database — Phase 5. Repositories are in-memory, behind the same interfaces a MongoDB
   implementation will fulfill later; nothing above that seam needs to change when it does.
 - Real email delivery — no mailer exists yet, so `forgotPassword`/registration hand the raw
