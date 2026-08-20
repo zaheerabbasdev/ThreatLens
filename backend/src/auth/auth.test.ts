@@ -123,6 +123,22 @@ describe("auth", () => {
       expect(rightPassword.status).toBe(403);
       expect(rightPassword.body.error.code).toBe("FORBIDDEN");
     });
+
+    it("locks out repeated login attempts with a real 429 (spec §122's 'repeated login attempts' failure scenario, actually triggered, not just configured)", async () => {
+      // createAuthRateLimit allows 10 requests per 15-minute window — fire
+      // 11 and confirm the limiter actually engages, not just that the
+      // middleware is wired in.
+      const attempt = () =>
+        request(app).post("/api/v1/auth/login").send({ email: "avery.chen@northwind.test", password: "wrong-password-here" });
+
+      const results = [];
+      for (let i = 0; i < 11; i++) results.push(await attempt());
+
+      const statuses = results.map((r) => r.status);
+      expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true);
+      expect(statuses[10]).toBe(429);
+      expect(results[10]!.body.error.code).toBe("TOO_MANY_REQUESTS");
+    });
   });
 
   describe("GET /me", () => {
