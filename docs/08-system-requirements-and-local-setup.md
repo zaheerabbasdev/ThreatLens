@@ -32,7 +32,7 @@ Any of the following work equally well:
 | MongoDB (local or [Atlas](https://www.mongodb.com/atlas)) | persistent storage across restarts | the backend runs on in-memory data — same demo dataset, resets when the server restarts |
 | An OpenAI API key | the AI assistant / incident analysis / recommendations | those endpoints return a clean "not configured" response instead of an error |
 | A VirusTotal API key | IOC enrichment | the enrichment endpoint returns "not configured" instead of an error |
-| Python 3.11+ and pip | the anomaly-detection ML service | anomaly analysis returns "not configured" |
+| Python 3.11+ and pip | the anomaly-detection ML service | anomaly analysis returns "not configured" — see `ml-service/README.md` for exact setup/run steps if you want it |
 
 **Nothing in this list is required to run and explore the full application.** Every optional
 piece degrades to a clearly-labeled "not configured" response rather than an error — see

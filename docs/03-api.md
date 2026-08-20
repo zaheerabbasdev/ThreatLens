@@ -71,15 +71,17 @@ includes `{total, page, pageSize}`.
 
 | Tier | Limit | Applies to |
 |---|---|---|
-| Baseline | 120 req/min | every authenticated route (applied globally in `app.ts`) |
-| Auth | 10 req/15min | `/auth/register`, `/auth/login`, `/auth/refresh` |
-| Sensitive action | 5 req/hour | `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`, `/auth/change-password` |
-| AI | 15 req/min | every `/ai/*` route |
-| Enrichment | 15 req/min | `POST /ioc/:id/enrich` |
-| Anomaly | 15 req/min | `POST /security-events/analyze/:userId` |
-| Public | 30 req/min | unauthenticated endpoints |
+| Baseline | 120 req/min | every route under `/api/v1`, applied globally in `app.ts` — including unauthenticated ones like `/health` |
+| Auth | 10 req/15min | `/auth/register`, `/auth/login`, `/auth/refresh` (stacked on top of the baseline tier above) |
+| Sensitive action | 5 req/hour | `/auth/forgot-password`, `/auth/reset-password`, `/auth/verify-email`, `/auth/change-password` (also stacked on the baseline) |
+| AI | 15 req/min | every `/ai/*` route (also stacked on the baseline) |
+| Enrichment | 15 req/min | `POST /ioc/:id/enrich` (also stacked on the baseline) |
+| Anomaly | 15 req/min | `POST /security-events/analyze/:userId` (also stacked on the baseline) |
 
-All limiters are per-IP. A 429 includes `code: "TOO_MANY_REQUESTS"`.
+All limiters are per-IP. A `429` includes `code: "TOO_MANY_REQUESTS"`. A separate, stricter
+"public" tier (`createPublicRateLimit`, 30 req/min) exists in
+`backend/src/middleware/rateLimit.ts` but isn't currently wired to any route — the baseline
+tier above is what actually protects unauthenticated endpoints today.
 
 ---
 

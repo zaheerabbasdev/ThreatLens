@@ -57,7 +57,9 @@ component behavior (loading/empty/error/success states, keyboard navigation, foc
 the actual production build (`npm run preview`, started automatically by
 `playwright.config.ts`) — landing → login → every major feature area, plus an unauthenticated-
 redirect check. This is the only test layer that exercises real routing, real CSS, and real
-browser behavior (e.g. cookie handling) rather than a simulated DOM.
+browser behavior (e.g. cookie handling) rather than a simulated DOM. On a fresh checkout,
+install the browser binary once first: `npx playwright install chromium` (there's no
+`postinstall` hook that does this automatically).
 
 **Real-backend integration tests** (`src/services/api/*.integration.test.ts`) — the newest and
 strongest layer, added in Phase 12. These spawn the actual compiled backend
