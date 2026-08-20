@@ -606,6 +606,150 @@ actual external system) is labeled as such in the response itself, not hidden in
 same tradeoff `RecommendationRepository`/`AIAnalysisRepository` already had; see Phase 5's
 section for the pattern this follows.
 
+## Phase 11 — Cybersecurity Hardening
+
+Spec §116-118: an OWASP-aligned security code review plus adversarial testing across
+authentication, authorization, input validation, external requests, AI integration, and
+tenant isolation. Most of this codebase was already hardened incrementally as each module was
+built — every domain module's own test suite already includes an "authentication and
+authorization" block covering unauthenticated access, wrong-permission access, and an IDOR/
+tenant-isolation guard (a foreign-org ID gets the identical `404` a nonexistent one would) —
+so this phase's real job was auditing the newest, least-scrutinized surface (Phases 6-10) and
+closing whatever that turned up, not re-litigating what every other phase already covered.
+
+**Method**: a two-stage automated review — one pass reading the full `git diff` since Phase 5
+(84 files, ~5,500 lines: all of AI/RAG, threat intel, anomaly detection, correlation, and
+response workflows) for concrete, exploitable vulnerabilities across injection, authZ/authN,
+crypto, SSRF, and prompt injection; a second, independent pass re-reading the actual source
+for each candidate finding against a strict false-positive filter (hard exclusions for DOS,
+theoretical/self-only issues, missing-hardening-as-opposed-to-a-vulnerability, etc.) before
+anything got acted on.
+
+**Found and fixed**: `wrapUntrustedData()` (`src/ai/promptSafety.ts`, spec §55's structural
+prompt-injection defense) redacted secrets in untrusted content but never neutralized the
+literal `</untrusted_data>`/`<untrusted_data ...>` marker sequence itself — content containing
+that exact text could close the labeled block early and make attacker-authored text that
+followed look structurally like it sat outside the untrusted region. Confirmed as a genuine,
+if bounded, cross-user issue: an incident's `description` (settable by any `incidents:write`
+user) reaches a *different* user's AI assistant session and the persisted, `incidents:read`-
+wide `AIAnalysis` cache via this same code path. The verification pass capped it at bounded
+severity — every AI output stays Zod-schema-constrained to short free-text fields, nothing it
+produces is auto-executed or auto-persisted as fact, and `generateRecommendations` output
+requires separate `recommendations:approve` review before Phase 10's workflow can act on it —
+but a real defensive-code gap with a cheap, safe fix doesn't need to wait for a worse outcome
+to be worth closing. Fixed by escaping any literal marker sequence inside untrusted content
+before wrapping it (`escapeMarkers()`), with two new regression tests confirming exactly one
+real closing tag survives in the assembled prompt regardless of what the untrusted content
+contains, and that the escaped text stays visible to the model as data rather than being
+silently dropped.
+
+**Verified clean, no changes needed**:
+- `npm audit` — zero vulnerabilities, frontend and backend, dependencies and dev-dependencies
+- SSRF — every new outbound call (`VirusTotalProvider`, `MlServiceProvider`) targets a fixed
+  host from either a hardcoded string or an admin-configured env var, never a value derived
+  from request data; user-supplied indicator values only ever appear in the request *path*,
+  never control the host or protocol
+- Tenant isolation — every new repository method (indicator `update`, `ResponseAction`,
+  `SecurityEvent`, the `Recommendation.markApplied` addition) scopes by `organizationId`
+  exactly like the modules built in earlier phases
+- CSRF — the refresh-token cookie already uses `sameSite: "strict"`, `httpOnly`, and a path
+  scoped to `/api/v1/auth` only (pre-existing from Phase 3, re-verified here); every other
+  route authenticates via the `Authorization` header, which no cross-site request can forge
+- JWT — signing and verification are both pinned to a single allowlisted algorithm (`HS256`),
+  closing the classic algorithm-confusion/`alg: none` attack class (pre-existing, re-verified)
+- No file-upload surface exists anywhere in the API — `file upload abuse` from spec §118's list
+  is not applicable to this codebase
+- NoSQL injection — new Mongo query filters build plain objects from typed/validated fields;
+  the one regex-based search path escapes regex metacharacters
+
+**Not built/run this phase**: a live dynamic scan (OWASP ZAP, spec §118) — no such tool is
+available in this environment; the adversarial categories it would probe (auth bypass, IDOR,
+rate-limit bypass, session attacks) are instead covered by the real HTTP-level tests already
+present in every module's own suite, run against the actual Express app via supertest rather
+than a black-box scanner. A real ZAP pass against a deployed instance remains a good idea
+before production use.
+
+## Phase 12 — Full-System Integration
+
+The frontend (Phases 1-2) was built entirely against `Mock*Service` implementations, with the
+service interfaces deliberately designed so "a future `Api*Service` implementation replaces it
+without any change required in components/hooks that depend on this interface" (frontend
+`src/services/*.service.ts`'s own header comments, written before the backend existed). This
+phase is that replacement — the frontend's `FINAL EXECUTION INSTRUCTION` spec text says it
+directly: *"Replace mock services incrementally... do not break the completed frontend...
+maintain backward compatibility with established frontend contracts."*
+
+**What changed, and where:**
+- `src/services/api/` (frontend) — one real `Api*Service` per ported interface, each a thin
+  HTTP client translating the exact same method signatures the mocks already implement into
+  real requests against the versioned backend API
+- `src/services/api/client.ts` — the shared plumbing every `Api*Service` funnels through:
+  an in-memory (never `localStorage`) access token, automatic single-flight refresh-on-401,
+  the backend's `{data, meta?}`/`{error:{code,message,...}}` envelope translated into either
+  a return value or a thrown `ApiError`, and a `404`→`null` helper matching every mock
+  service's existing "not found is a value, not an exception" contract
+- `src/services/index.ts` — the one new indirection point: resolves to the real services when
+  `VITE_API_BASE_URL` is set, mock services otherwise (the default — the frontend still runs
+  standalone with no backend, exactly as every phase before this one). 16 files across
+  `src/api/`, `src/hooks/`, and `src/pages/auth/` were repointed from importing
+  `@/services/mock` directly to importing this resolved `@/services` — the only frontend
+  change this phase made beyond adding the new `services/api/` directory itself
+
+**Ported to the real backend**: auth, incidents, alerts, IOC/threat-intel, users +
+organization, audit (read path — see below), threat graph, MITRE, investigations, reports, AI
+assistant/analysis/recommendations.
+
+**Not ported — `threat` stays on `MockThreatService`**: `getOrgRiskScore`, `getSystemHealth`,
+`listActivityTimeline`, and `listTopTechniques` are dashboard-aggregation reads with no
+backend endpoint — none of Phases 3-11 built a dedicated risk-score/system-health/activity-
+timeline API, because none of those phases needed one for what they were building. Porting
+`threat` would mean inventing new backend surface under the label "integration," which is
+scope creep this phase deliberately didn't take on; it's honestly flagged here as follow-up
+work instead of silently left half-wired.
+
+**Two real, deliberate behavior differences from the mocks** (both necessary, both
+documented at the call site):
+- `AuditService.record()` is a no-op against the real backend. Every mock caller invokes it
+  only because `MockAuditService` is the *sole* thing that records anything in mock mode; the
+  real backend already records its own audit entry, server-attributed, as a direct side
+  effect of the action that just succeeded (see the Audit Logs section above) — and the audit
+  router has no write route *at all* (spec §39: read-only, never a client-submitted entry).
+  Calling one here would either 404 or, if it existed, undermine the exact guarantee that
+  route's absence protects.
+- `AIService.analyzeIncident()` returns `null` (not a thrown error) on a real `503` — the
+  backend's analysis endpoint is get-or-generate, so an unconfigured deployment (no
+  `OPENAI_API_KEY`) genuinely can't return anything; the UI degrading to "no analysis
+  available" is more useful than an error boundary for a capability that's simply off.
+  `askAssistant()` deliberately does NOT get the same treatment — a chat message the user is
+  actively waiting on should surface as a real error, not silently do nothing.
+
+**Testing — the strongest verification story in this codebase**: every previous phase's
+"honest limitation" was some external dependency (OpenAI, VirusTotal, MongoDB, a Python
+service) this environment's network couldn't reach. The *real backend* has no such problem —
+it's the one thing this project fully controls, so this phase could verify against the actual
+article instead of a fake:
+- `auth.service.integration.test.ts` (7 tests) and `services.integration.test.ts` (12 tests)
+  spawn the **real, compiled backend server** (`backend/dist/server.js`) as a child process,
+  point the real `Api*Service` classes at it via `vi.stubEnv`, and exercise them over genuine
+  HTTP — login, wrong-password rejection, registration, a real weak-password `422`, logout,
+  and (for every other ported service) list/getById/create against the real seeded demo data,
+  plus the real audit trail reflecting a real IOC submission, and the real `503`→`null`/
+  `503`→thrown split for the two AI methods. No mocked `fetch`, no stubbed response bodies —
+  the actual Express app, actually listening on a real port, actually validating with the
+  same Zod schemas and Argon2id hashing every backend unit test already exercises
+  independently
+- The one thing a Node test genuinely can't exercise is a real browser's automatic
+  `credentials: "include"` cookie handling across separate `fetch()` calls (Node's `fetch` has
+  no cookie jar) — the refresh-cookie test instead manually captures the real `Set-Cookie`
+  header from a real login and presents it back on a real refresh call, proving the *server-
+  side* mechanism `getSession()` depends on is correct; the browser's own cookie-jar behavior
+  is standard platform behavior, not something this codebase implements
+- Every test file skips (via each test's own runtime `skip()`, not a collection-time guard)
+  if `backend/dist/server.js` hasn't been built yet, rather than failing confusingly
+- Full regression: frontend typecheck/lint clean, **148/148** tests passing (129 pre-existing
+  mock-mode tests, unaffected — `VITE_API_BASE_URL` stays unset in the default test run — plus
+  19 new real-backend integration tests), no leftover child processes after any run
+
 ## Not yet built (later phases — nothing here is silently faked)
 
 - RAG/vector search (Phase 6, deferred — see above), a second threat-intel provider beyond
@@ -613,7 +757,10 @@ section for the pattern this follows.
   pipeline over actual org data for the anomaly-detection model (Phase 8's synthetic baseline
   is a documented placeholder — see `ml-service/README.md`), a persisted "confirmed
   correlation" record (Phase 9), a real executor behind `ResponseActionExecutor` — actual
-  EDR/firewall/IAM integration (Phase 12)
+  EDR/firewall/IAM integration
+- A backend dashboard-aggregation API (org risk score, system health, activity timeline, top
+  techniques) — `ThreatService` stays on `MockThreatService` on the frontend until one exists
+  (Phase 12's own section above has the detail)
 - Broader adversarial tooling Phase 4 didn't cover: Semgrep static analysis, OWASP ZAP
   dynamic scanning, and CI-integrated Dependabot — spec §3 devsecops recommendations that need
   either tool access or a CI pipeline this project doesn't have yet
@@ -622,7 +769,7 @@ section for the pattern this follows.
   flow is testable end to end. This is a real, working token — just delivered by a different
   channel than production will eventually use.
 - Redis/BullMQ for background jobs, and a vector search index for RAG — both named in the
-  project's tech stack but not needed by anything built through Phase 10
+  project's tech stack but not needed by anything built through Phase 12
 
 ## Development
 

@@ -1,0 +1,642 @@
+diff --git a/backend/src/responseWorkflow/actionExecutor.test.ts b/backend/src/responseWorkflow/actionExecutor.test.ts
+new file mode 100644
+index 0000000..fd274cd
+--- /dev/null
++++ b/backend/src/responseWorkflow/actionExecutor.test.ts
+@@ -0,0 +1,44 @@
++import { describe, expect, it } from "vitest";
++import { SimulatedActionExecutor } from "./actionExecutor.js";
++import type { ResponseAction } from "../types/responseAction.js";
++
++function action(overrides: Partial<ResponseAction> = {}): ResponseAction {
++  return {
++    id: "ra_1",
++    organizationId: "org_1",
++    incidentId: "inc_1",
++    type: "block_ip",
++    target: "1.2.3.4",
++    description: "Block the attacking IP",
++    status: "pending_execution",
++    requestedBy: "user_1",
++    requestedAt: "2026-01-01T00:00:00Z",
++    ...overrides,
++  };
++}
++
++describe("SimulatedActionExecutor", () => {
++  it("always reports isSimulated: true — never claims a real system was touched", async () => {
++    const result = await new SimulatedActionExecutor().execute(action());
++    expect(result.isSimulated).toBe(true);
++  });
++
++  it("mentions the target in the result description", async () => {
++    const result = await new SimulatedActionExecutor().execute(action({ target: "evil.test", type: "block_domain" }));
++    expect(result.resultDescription).toContain("evil.test");
++    expect(result.resultDescription).toContain("block domain");
++  });
++
++  it("falls back to a generic description when there's no target (recommended_action)", async () => {
++    const result = await new SimulatedActionExecutor().execute(
++      action({ type: "recommended_action", target: undefined, description: "Force password reset for affected users" }),
++    );
++    expect(result.resultDescription).not.toContain("undefined");
++    expect(result.resultDescription).toContain("recommended remediation");
++  });
++
++  it("explicitly states no live integration exists, never implying real execution", async () => {
++    const result = await new SimulatedActionExecutor().execute(action());
++    expect(result.resultDescription.toLowerCase()).toContain("no live");
++  });
++});
+diff --git a/backend/src/responseWorkflow/actionExecutor.ts b/backend/src/responseWorkflow/actionExecutor.ts
+new file mode 100644
+index 0000000..e73d638
+--- /dev/null
++++ b/backend/src/responseWorkflow/actionExecutor.ts
+@@ -0,0 +1,43 @@
++import type { ResponseAction } from "../types/responseAction.js";
++
++export interface ActionExecutionResult {
++  isSimulated: boolean;
++  resultDescription: string;
++}
++
++/**
++ * Same DI shape as AIProvider/ThreatIntelProvider/AnomalyDetectionProvider —
++ * one abstraction, swappable implementation, nothing above this layer
++ * hardcodes how an action actually gets carried out. Unlike those three,
++ * there's no "not configured" 503 case here: a `SimulatedActionExecutor` is
++ * always available, so requesting/executing a response action always works
++ * in every deployment — it's the REAL EDR/firewall/IAM execution (Phase 12)
++ * that's the optional, swappable piece.
++ */
++export interface ResponseActionExecutor {
++  execute(action: ResponseAction): Promise<ActionExecutionResult>;
++}
++
++function describeTarget(action: ResponseAction): string {
++  return action.target ? `"${action.target}"` : "the recommended remediation described above";
++}
++
++/**
++ * The only executor that exists right now. Always returns
++ * `isSimulated: true` — never claims to have touched a real firewall, EDR,
++ * or IAM system, because it hasn't (CLAUDE.md: never fabricate a result).
++ * Phase 12 ("integration") is where a real executor gets built and wired in
++ * behind this same interface, with zero changes to responseWorkflow.
++ * service.ts.
++ */
++export class SimulatedActionExecutor implements ResponseActionExecutor {
++  async execute(action: ResponseAction): Promise<ActionExecutionResult> {
++    return {
++      isSimulated: true,
++      resultDescription:
++        `Simulated: recorded a decision to ${action.type.replace(/_/g, " ")} for ${describeTarget(action)}. ` +
++        "No live EDR/firewall/IAM integration is configured for this deployment (real execution is Phase 12's " +
++        "scope) — nothing was actually sent to an external system.",
++    };
++  }
++}
+diff --git a/backend/src/responseWorkflow/responseWorkflow.controller.ts b/backend/src/responseWorkflow/responseWorkflow.controller.ts
+new file mode 100644
+index 0000000..389e428
+--- /dev/null
++++ b/backend/src/responseWorkflow/responseWorkflow.controller.ts
+@@ -0,0 +1,43 @@
++import { asyncHandler } from "../utils/asyncHandler.js";
++import { sendSuccess } from "../utils/apiResponse.js";
++import { UnauthorizedError } from "../errors/AppError.js";
++import type { ResponseWorkflowService } from "./responseWorkflow.service.js";
++import { requestActionSchema, listQuerySchema } from "./responseWorkflow.schemas.js";
++
++export type ResponseWorkflowController = ReturnType<typeof createResponseWorkflowController>;
++
++export function createResponseWorkflowController(service: ResponseWorkflowService) {
++  return {
++    request: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const input = requestActionSchema.parse(req.body);
++      const action = await service.requestAction(req.user.organizationId, req.user.id, input);
++      sendSuccess(res, action, undefined, 201);
++    }),
++
++    list: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const { incidentId } = listQuerySchema.parse(req.query);
++      const actions = await service.listForIncident(req.user.organizationId, incidentId);
++      sendSuccess(res, actions);
++    }),
++
++    execute: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const action = await service.executeAction(req.user.organizationId, req.user.id, req.params["id"]!);
++      sendSuccess(res, action);
++    }),
++
++    reject: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const action = await service.rejectAction(req.user.organizationId, req.user.id, req.params["id"]!);
++      sendSuccess(res, action);
++    }),
++
++    applyRecommendation: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const action = await service.applyRecommendation(req.user.organizationId, req.user.id, req.params["recommendationId"]!);
++      sendSuccess(res, action, undefined, 201);
++    }),
++  };
++}
+diff --git a/backend/src/responseWorkflow/responseWorkflow.routes.ts b/backend/src/responseWorkflow/responseWorkflow.routes.ts
+new file mode 100644
+index 0000000..fc10473
+--- /dev/null
++++ b/backend/src/responseWorkflow/responseWorkflow.routes.ts
+@@ -0,0 +1,20 @@
++import { Router } from "express";
++import { requireAuth } from "../middleware/requireAuth.js";
++import { requirePermission } from "../middleware/requirePermission.js";
++import type { ResponseWorkflowController } from "./responseWorkflow.controller.js";
++
++export function createResponseWorkflowRouter(controller: ResponseWorkflowController): Router {
++  const router = Router();
++  router.use(requireAuth);
++
++  router.get("/", requirePermission("incidents:read"), controller.list);
++  router.post("/", requirePermission("response:request"), controller.request);
++  // Execute/reject/apply are all admin-gated (spec: critical actions need
++  // human approval by an appropriately privileged role) — same tier as
++  // recommendations:approve, not the lower response:request tier above.
++  router.post("/:id/execute", requirePermission("response:execute"), controller.execute);
++  router.post("/:id/reject", requirePermission("response:execute"), controller.reject);
++  router.post("/apply-recommendation/:recommendationId", requirePermission("response:execute"), controller.applyRecommendation);
++
++  return router;
++}
+diff --git a/backend/src/responseWorkflow/responseWorkflow.schemas.ts b/backend/src/responseWorkflow/responseWorkflow.schemas.ts
+new file mode 100644
+index 0000000..9e16cfb
+--- /dev/null
++++ b/backend/src/responseWorkflow/responseWorkflow.schemas.ts
+@@ -0,0 +1,26 @@
++import { z } from "zod";
++
++// "recommended_action" is deliberately excluded — that value is only ever
++// set internally by applyRecommendation(), never something a client
++// requests directly (see types/responseAction.ts).
++const REQUESTABLE_TYPES = [
++  "block_ip",
++  "block_domain",
++  "isolate_host",
++  "disable_user_account",
++  "force_password_reset",
++  "quarantine_file",
++] as const;
++
++export const requestActionSchema = z.object({
++  incidentId: z.string().min(1).max(128),
++  type: z.enum(REQUESTABLE_TYPES),
++  target: z.string().trim().min(1).max(500),
++  description: z.string().trim().min(1).max(2000),
++});
++export type RequestActionInput = z.infer<typeof requestActionSchema>;
++
++export const listQuerySchema = z.object({
++  incidentId: z.string().min(1).max(128),
++});
++export type ListQuery = z.infer<typeof listQuerySchema>;
+diff --git a/backend/src/responseWorkflow/responseWorkflow.service.ts b/backend/src/responseWorkflow/responseWorkflow.service.ts
+new file mode 100644
+index 0000000..5087772
+--- /dev/null
++++ b/backend/src/responseWorkflow/responseWorkflow.service.ts
+@@ -0,0 +1,176 @@
++import { randomUUID } from "node:crypto";
++import { ConflictError, NotFoundError } from "../errors/AppError.js";
++import type { ResponseActionRepository } from "../repositories/responseAction.repository.js";
++import type { RecommendationRepository } from "../repositories/recommendation.repository.js";
++import type { IncidentRepository } from "../repositories/incident.repository.js";
++import type { UserRepository } from "../repositories/user.repository.js";
++import type { AuditService } from "../audit/audit.service.js";
++import type { ResponseAction } from "../types/responseAction.js";
++import type { RequestActionInput } from "./responseWorkflow.schemas.js";
++import type { ResponseActionExecutor } from "./actionExecutor.js";
++
++/**
++ * The RESPOND stage (see types/responseAction.ts's header comment for the
++ * two-human-gate design: `response:request` to create, `response:execute`
++ * to actually carry one out). Every state transition is audit-logged under
++ * the real actor — same non-spoofable-attribution rule as every other
++ * service in this codebase.
++ */
++export class ResponseWorkflowService {
++  constructor(
++    private readonly actions: ResponseActionRepository,
++    private readonly recommendations: RecommendationRepository,
++    private readonly incidents: IncidentRepository,
++    private readonly users: UserRepository,
++    private readonly audit: AuditService,
++    private readonly executor: ResponseActionExecutor,
++  ) {}
++
++  async requestAction(organizationId: string, actorId: string, input: RequestActionInput): Promise<ResponseAction> {
++    const incident = await this.incidents.getById(organizationId, input.incidentId);
++    if (!incident) throw new NotFoundError("The requested incident was not found.");
++
++    const action: ResponseAction = {
++      id: randomUUID(),
++      organizationId,
++      incidentId: input.incidentId,
++      type: input.type,
++      target: input.target,
++      description: input.description,
++      status: "pending_execution",
++      requestedBy: actorId,
++      requestedAt: new Date().toISOString(),
++    };
++    const created = await this.actions.create(action);
++
++    await this.recordAudit(organizationId, actorId, "RESPONSE_ACTION_REQUESTED", created.id, "medium");
++    return created;
++  }
++
++  async listForIncident(organizationId: string, incidentId: string): Promise<ResponseAction[]> {
++    const incident = await this.incidents.getById(organizationId, incidentId);
++    if (!incident) throw new NotFoundError("The requested incident was not found.");
++    return this.actions.listByIncident(organizationId, incidentId);
++  }
++
++  /**
++   * The one place a response action's state actually changes something
++   * (spec: "critical actions require deterministic backend validation").
++   * Only a `pending_execution` action can be executed — already-executed
++   * or already-rejected is a 409, not a silent no-op, so a double-click
++   * can't be mistaken for two separate executions.
++   */
++  async executeAction(organizationId: string, actorId: string, actionId: string): Promise<ResponseAction> {
++    const action = await this.actions.getById(organizationId, actionId);
++    if (!action) throw new NotFoundError("The requested response action was not found.");
++    if (action.status !== "pending_execution") {
++      throw new ConflictError(`This action is already ${action.status} and can't be executed again.`);
++    }
++
++    const { isSimulated, resultDescription } = await this.executor.execute(action);
++    const updated = await this.actions.update(organizationId, actionId, {
++      status: "executed",
++      reviewedBy: actorId,
++      reviewedAt: new Date().toISOString(),
++      executionResult: resultDescription,
++      isSimulated,
++    });
++    if (!updated) throw new NotFoundError("The requested response action was not found.");
++
++    await this.recordAudit(organizationId, actorId, "RESPONSE_ACTION_EXECUTED", actionId, "high");
++    return updated;
++  }
++
++  async rejectAction(organizationId: string, actorId: string, actionId: string): Promise<ResponseAction> {
++    const action = await this.actions.getById(organizationId, actionId);
++    if (!action) throw new NotFoundError("The requested response action was not found.");
++    if (action.status !== "pending_execution") {
++      throw new ConflictError(`This action is already ${action.status} and can't be rejected.`);
++    }
++
++    const updated = await this.actions.update(organizationId, actionId, {
++      status: "rejected",
++      reviewedBy: actorId,
++      reviewedAt: new Date().toISOString(),
++    });
++    if (!updated) throw new NotFoundError("The requested response action was not found.");
++
++    await this.recordAudit(organizationId, actorId, "RESPONSE_ACTION_REJECTED", actionId, "medium");
++    return updated;
++  }
++
++  /**
++   * Converts an already-approved AI recommendation (Phase 6's human-in-
++   * the-loop gate) into a real, tracked, executed ResponseAction — the
++   * missing piece ai.service.ts's header comment named explicitly:
++   * "Nothing in this codebase transitions a recommendation to 'applied'
++   * automatically; that would be wiring a real response workflow (Phase
++   * 10)." A recommendation that isn't "approved" yet (still pending, or
++   * rejected) can't be applied — `markApplied` enforces that at the
++   * repository layer, this method just translates its null into a 409.
++   */
++  async applyRecommendation(organizationId: string, actorId: string, recommendationId: string): Promise<ResponseAction> {
++    const recommendation = await this.recommendations.getById(organizationId, recommendationId);
++    if (!recommendation) throw new NotFoundError("The requested recommendation was not found.");
++    // Validated BEFORE creating/executing anything below — an action must
++    // never be recorded as executed for a recommendation that turns out not
++    // to be applicable (still pending, or already rejected).
++    if (recommendation.status !== "approved") {
++      throw new ConflictError("Only an approved recommendation can be applied.");
++    }
++
++    const action: ResponseAction = {
++      id: randomUUID(),
++      organizationId,
++      incidentId: recommendation.incidentId,
++      type: "recommended_action",
++      description: `${recommendation.title} — ${recommendation.description}`,
++      status: "pending_execution",
++      recommendationId,
++      requestedBy: actorId,
++      requestedAt: new Date().toISOString(),
++    };
++
++    const { isSimulated, resultDescription } = await this.executor.execute(action);
++    const created = await this.actions.create({
++      ...action,
++      status: "executed",
++      reviewedBy: actorId,
++      reviewedAt: new Date().toISOString(),
++      executionResult: resultDescription,
++      isSimulated,
++    });
++
++    // Re-checked here too (not just the read above) — genuine defense
++    // against a concurrent request racing this same recommendation between
++    // the check and this write; still returns a clean 409 rather than a
++    // silent inconsistency if it somehow fires.
++    const applied = await this.recommendations.markApplied(organizationId, recommendationId, actorId);
++    if (!applied) {
++      throw new ConflictError("Only an approved recommendation can be applied.");
++    }
++
++    await this.recordAudit(organizationId, actorId, "RESPONSE_ACTION_EXECUTED", created.id, "high");
++    return created;
++  }
++
++  private async recordAudit(
++    organizationId: string,
++    actorId: string,
++    action: "RESPONSE_ACTION_REQUESTED" | "RESPONSE_ACTION_EXECUTED" | "RESPONSE_ACTION_REJECTED",
++    resourceId: string,
++    severity: "medium" | "high",
++  ): Promise<void> {
++    const actor = await this.users.findById(actorId);
++    await this.audit.record({
++      organizationId,
++      actorId,
++      actorName: actor?.name ?? "Unknown",
++      action,
++      resourceType: "response_action",
++      resourceId,
++      result: "success",
++      severity,
++    });
++  }
++}
+diff --git a/backend/src/responseWorkflow/responseWorkflow.test.ts b/backend/src/responseWorkflow/responseWorkflow.test.ts
+new file mode 100644
+index 0000000..627c14a
+--- /dev/null
++++ b/backend/src/responseWorkflow/responseWorkflow.test.ts
+@@ -0,0 +1,248 @@
++import { beforeEach, describe, expect, it } from "vitest";
++import request from "supertest";
++import { createApp } from "../app.js";
++import { InMemoryUserRepository, seedDemoUsers } from "../repositories/user.repository.js";
++import { InMemoryIncidentRepository } from "../repositories/incident.repository.js";
++import { seedDemoIncidents } from "../repositories/incident.seed.js";
++import { InMemoryRecommendationRepository } from "../repositories/recommendation.repository.js";
++import type { Recommendation } from "../types/ai.js";
++
++const DEMO_PASSWORD = "ThreatLens#Demo1";
++
++async function buildApp() {
++  const userRepository = new InMemoryUserRepository();
++  await seedDemoUsers(userRepository);
++  const incidentRepository = new InMemoryIncidentRepository();
++  seedDemoIncidents(incidentRepository);
++  const recommendationRepository = new InMemoryRecommendationRepository();
++  const app = createApp({ userRepository, incidentRepository, recommendationRepository });
++  return { app, recommendationRepository };
++}
++
++async function loginAs(app: Awaited<ReturnType<typeof buildApp>>["app"], email: string): Promise<string> {
++  const res = await request(app).post("/api/v1/auth/login").send({ email, password: DEMO_PASSWORD });
++  return res.body.data.accessToken as string;
++}
++
++async function seedRecommendation(
++  repo: InMemoryRecommendationRepository,
++  overrides: Partial<Recommendation> = {},
++): Promise<Recommendation> {
++  return repo.create({
++    id: overrides.id ?? "rec_test_1",
++    organizationId: "org_northwind",
++    incidentId: "inc_1",
++    title: "Force password reset",
++    description: "Reset passwords for the affected users.",
++    status: "pending",
++    generatedBy: "ai",
++    ...overrides,
++  });
++}
++
++describe("response-actions", () => {
++  let ctx: Awaited<ReturnType<typeof buildApp>>;
++
++  beforeEach(async () => {
++    ctx = await buildApp();
++  });
++
++  describe("authentication and authorization", () => {
++    it("rejects an unauthenticated request", async () => {
++      const res = await request(ctx.app).get("/api/v1/response-actions?incidentId=inc_1");
++      expect(res.status).toBe(401);
++    });
++
++    it("a viewer (lacks response:request) cannot request an action", async () => {
++      const token = await loginAs(ctx.app, "sam.whitfield@northwind.test");
++      const res = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ incidentId: "inc_1", type: "block_ip", target: "1.2.3.4", description: "Block attacker IP" });
++      expect(res.status).toBe(403);
++    });
++
++    it("a viewer (has incidents:read) can list actions for an incident", async () => {
++      const token = await loginAs(ctx.app, "sam.whitfield@northwind.test");
++      const res = await request(ctx.app).get("/api/v1/response-actions?incidentId=inc_1").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++    });
++
++    it("a security_analyst (has response:request) can request an action", async () => {
++      const token = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const res = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ incidentId: "inc_1", type: "block_ip", target: "1.2.3.4", description: "Block attacker IP" });
++      expect(res.status).toBe(201);
++      expect(res.body.data.status).toBe("pending_execution");
++    });
++
++    it("a security_analyst (lacks response:execute) cannot execute an action", async () => {
++      const token = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const created = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ incidentId: "inc_1", type: "block_ip", target: "1.2.3.4", description: "Block attacker IP" });
++      const res = await request(ctx.app).post(`/api/v1/response-actions/${created.body.data.id}/execute`).set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(403);
++    });
++
++    it("a security_admin (has response:execute) can execute an action", async () => {
++      const analystToken = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const created = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${analystToken}`)
++        .send({ incidentId: "inc_1", type: "block_ip", target: "1.2.3.4", description: "Block attacker IP" });
++
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test"); // security_admin
++      const res = await request(ctx.app).post(`/api/v1/response-actions/${created.body.data.id}/execute`).set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data.status).toBe("executed");
++      expect(res.body.data.isSimulated).toBe(true);
++      expect(res.body.data.executionResult).toBeTruthy();
++    });
++  });
++
++  describe("request validation", () => {
++    it("returns 404 for a nonexistent incident", async () => {
++      const token = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const res = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ incidentId: "does-not-exist", type: "block_ip", target: "1.2.3.4", description: "Block" });
++      expect(res.status).toBe(404);
++    });
++
++    it("rejects an invalid action type", async () => {
++      const token = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const res = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ incidentId: "inc_1", type: "nuke_the_datacenter", target: "x", description: "Block" });
++      expect(res.status).toBe(422);
++    });
++
++    it("rejects submitting the internal-only 'recommended_action' type directly", async () => {
++      const token = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const res = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ incidentId: "inc_1", type: "recommended_action", target: "x", description: "Block" });
++      expect(res.status).toBe(422);
++    });
++
++    it("IDOR guard: an outsider cannot request an action against another org's incident", async () => {
++      const register = await request(ctx.app).post("/api/v1/auth/register").send({
++        name: "Outsider",
++        organization: "Some Other Company",
++        email: "outsider-response@example.test",
++        password: "Str0ng!Passw0rd#1",
++      });
++      const outsiderToken = register.body.data.accessToken as string;
++      const res = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${outsiderToken}`)
++        .send({ incidentId: "inc_1", type: "block_ip", target: "1.2.3.4", description: "Block" });
++      expect(res.status).toBe(404);
++    });
++  });
++
++  describe("execute / reject state machine", () => {
++    it("returns 409 executing an already-executed action", async () => {
++      const analystToken = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const created = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${analystToken}`)
++        .send({ incidentId: "inc_1", type: "isolate_host", target: "workstation-42", description: "Isolate" });
++
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      await request(ctx.app).post(`/api/v1/response-actions/${created.body.data.id}/execute`).set("Authorization", `Bearer ${adminToken}`);
++      const second = await request(ctx.app).post(`/api/v1/response-actions/${created.body.data.id}/execute`).set("Authorization", `Bearer ${adminToken}`);
++      expect(second.status).toBe(409);
++    });
++
++    it("rejects a pending action instead of executing it", async () => {
++      const analystToken = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const created = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${analystToken}`)
++        .send({ incidentId: "inc_1", type: "disable_user_account", target: "jsmith", description: "Disable" });
++
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      const res = await request(ctx.app).post(`/api/v1/response-actions/${created.body.data.id}/reject`).set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data.status).toBe("rejected");
++      expect(res.body.data.executionResult).toBeUndefined();
++    });
++
++    it("returns 404 executing a nonexistent action", async () => {
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      const res = await request(ctx.app).post("/api/v1/response-actions/does-not-exist/execute").set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(404);
++    });
++  });
++
++  describe("apply-recommendation", () => {
++    it("returns 409 when the recommendation is still pending (not yet approved)", async () => {
++      await seedRecommendation(ctx.recommendationRepository, { status: "pending" });
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      const res = await request(ctx.app).post("/api/v1/response-actions/apply-recommendation/rec_test_1").set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(409);
++    });
++
++    it("returns 409 when the recommendation was rejected", async () => {
++      await seedRecommendation(ctx.recommendationRepository, { status: "rejected" });
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      const res = await request(ctx.app).post("/api/v1/response-actions/apply-recommendation/rec_test_1").set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(409);
++    });
++
++    it("applies an approved recommendation, executing it immediately and marking it applied", async () => {
++      await seedRecommendation(ctx.recommendationRepository, { status: "approved" });
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      const res = await request(ctx.app).post("/api/v1/response-actions/apply-recommendation/rec_test_1").set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(201);
++      expect(res.body.data.status).toBe("executed");
++      expect(res.body.data.recommendationId).toBe("rec_test_1");
++      expect(res.body.data.type).toBe("recommended_action");
++
++      const updated = await ctx.recommendationRepository.getById("org_northwind", "rec_test_1");
++      expect(updated?.status).toBe("applied");
++    });
++
++    it("a security_analyst (lacks response:execute) cannot apply a recommendation", async () => {
++      await seedRecommendation(ctx.recommendationRepository, { status: "approved" });
++      const token = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const res = await request(ctx.app).post("/api/v1/response-actions/apply-recommendation/rec_test_1").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(403);
++    });
++
++    it("returns 404 for a nonexistent recommendation", async () => {
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      const res = await request(ctx.app).post("/api/v1/response-actions/apply-recommendation/does-not-exist").set("Authorization", `Bearer ${adminToken}`);
++      expect(res.status).toBe(404);
++    });
++  });
++
++  describe("audit trail", () => {
++    it("records RESPONSE_ACTION_REQUESTED and RESPONSE_ACTION_EXECUTED under the real actors", async () => {
++      const analystToken = await loginAs(ctx.app, "diego.alvarez@northwind.test");
++      const created = await request(ctx.app)
++        .post("/api/v1/response-actions")
++        .set("Authorization", `Bearer ${analystToken}`)
++        .send({ incidentId: "inc_1", type: "block_ip", target: "1.2.3.4", description: "Block attacker IP" });
++
++      const adminToken = await loginAs(ctx.app, "priya.n@northwind.test");
++      await request(ctx.app).post(`/api/v1/response-actions/${created.body.data.id}/execute`).set("Authorization", `Bearer ${adminToken}`);
++
++      const audit = await request(ctx.app).get("/api/v1/audit-logs").set("Authorization", `Bearer ${adminToken}`);
++      expect(audit.body.data).toEqual(
++        expect.arrayContaining([
++          expect.objectContaining({ action: "RESPONSE_ACTION_REQUESTED", actorName: "Diego Alvarez", resourceId: created.body.data.id }),
++          expect.objectContaining({ action: "RESPONSE_ACTION_EXECUTED", actorName: "Priya Natarajan", resourceId: created.body.data.id }),
++        ]),
++      );
++    });
++  });
++});

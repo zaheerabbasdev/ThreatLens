@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Icon } from "@/components/Icon";
 import { Spinner } from "@/components/Spinner";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import styles from "./AuthForm.module.css";
 
 export function VerifyEmail() {

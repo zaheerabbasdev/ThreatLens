@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import type { UpdateProfileInput, UserListParams } from "@/services/user.service";
 import type { AccountStatus, Role } from "@/types";
 import { useAuth } from "@/hooks/useAuth";

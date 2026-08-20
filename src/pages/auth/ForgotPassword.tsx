@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { Input } from "@/components/Input";
 import { Button } from "@/components/Button";
 import { Icon } from "@/components/Icon";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import { forgotPasswordSchema, type ForgotPasswordInput } from "@/schemas/auth";
 import styles from "./AuthForm.module.css";
 

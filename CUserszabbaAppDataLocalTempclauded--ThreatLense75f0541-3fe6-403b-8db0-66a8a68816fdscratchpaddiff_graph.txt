@@ -1,0 +1,498 @@
+diff --git a/backend/src/threatGraph/correlation.test.ts b/backend/src/threatGraph/correlation.test.ts
+new file mode 100644
+index 0000000..a24a9f2
+--- /dev/null
++++ b/backend/src/threatGraph/correlation.test.ts
+@@ -0,0 +1,178 @@
++import { describe, expect, it } from "vitest";
++import { findCorrelations } from "./correlation.js";
++import type { IPIndicator, DomainIndicator, URLIndicator, HashIndicator } from "../types/indicator.js";
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++const ORG = "org_1";
++
++function ipIndicator(overrides: Partial<IPIndicator> = {}): IPIndicator {
++  return {
++    id: "ind_ip",
++    organizationId: ORG,
++    type: "ip",
++    value: "1.2.3.4",
++    riskScore: 50,
++    severity: "medium",
++    confidence: "medium",
++    firstSeen: "2026-01-01T00:00:00Z",
++    lastSeen: "2026-01-01T00:00:00Z",
++    tags: [],
++    relatedIncidentIds: [],
++    sources: [],
++    relatedDomainIds: [],
++    ...overrides,
++  };
++}
++
++function domainIndicator(overrides: Partial<DomainIndicator> = {}): DomainIndicator {
++  return {
++    id: "ind_domain",
++    organizationId: ORG,
++    type: "domain",
++    value: "evil.test",
++    riskScore: 50,
++    severity: "medium",
++    confidence: "medium",
++    firstSeen: "2026-01-01T00:00:00Z",
++    lastSeen: "2026-01-01T00:00:00Z",
++    tags: [],
++    relatedIncidentIds: [],
++    sources: [],
++    relatedIpIds: [],
++    relatedUrlIds: [],
++    ...overrides,
++  };
++}
++
++function urlIndicator(overrides: Partial<URLIndicator> = {}): URLIndicator {
++  return {
++    id: "ind_url",
++    organizationId: ORG,
++    type: "url",
++    value: "https://evil.test/login",
++    riskScore: 50,
++    severity: "medium",
++    confidence: "medium",
++    firstSeen: "2026-01-01T00:00:00Z",
++    lastSeen: "2026-01-01T00:00:00Z",
++    tags: [],
++    relatedIncidentIds: [],
++    sources: [],
++    domain: "evil.test",
++    path: "/login",
++    isMalwareHost: false,
++    relatedIndicatorIds: [],
++    ...overrides,
++  };
++}
++
++function hashIndicator(overrides: Partial<HashIndicator> = {}): HashIndicator {
++  return {
++    id: "ind_hash",
++    organizationId: ORG,
++    type: "hash",
++    value: "a".repeat(64),
++    riskScore: 50,
++    severity: "medium",
++    confidence: "medium",
++    firstSeen: "2026-01-01T00:00:00Z",
++    lastSeen: "2026-01-01T00:00:00Z",
++    tags: [],
++    relatedIncidentIds: [],
++    sources: [],
++    algorithm: "sha256",
++    ...overrides,
++  };
++}
++
++function securityEvent(overrides: Partial<SecurityEvent> = {}): SecurityEvent {
++  return {
++    id: "evt_1",
++    organizationId: ORG,
++    type: "authentication",
++    description: "test event",
++    severity: "info",
++    timestamp: "2026-01-01T00:00:00Z",
++    ...overrides,
++  };
++}
++
++describe("findCorrelations", () => {
++  it("finds a security event whose sourceIp matches an IP indicator's value", () => {
++    const subject = ipIndicator({ value: "9.9.9.9" });
++    const event = securityEvent({ id: "evt_x", sourceIp: "9.9.9.9" });
++    const candidates = findCorrelations(subject, [], [event]);
++    expect(candidates).toContainEqual(
++      expect.objectContaining({ relatedType: "security_event", relatedId: "evt_x", evidenceType: "shared_source_ip", confidence: "high" }),
++    );
++  });
++
++  it("does not match a security event with a different sourceIp", () => {
++    const subject = ipIndicator({ value: "9.9.9.9" });
++    const event = securityEvent({ sourceIp: "1.1.1.1" });
++    expect(findCorrelations(subject, [], [event])).toEqual([]);
++  });
++
++  it("finds two IP indicators sharing the same ASN", () => {
++    const subject = ipIndicator({ id: "ind_a", asn: "AS1234" });
++    const other = ipIndicator({ id: "ind_b", value: "5.6.7.8", asn: "AS1234" });
++    const candidates = findCorrelations(subject, [other], []);
++    expect(candidates).toContainEqual(expect.objectContaining({ relatedId: "ind_b", evidenceType: "shared_asn", confidence: "medium" }));
++  });
++
++  it("does not match IP indicators with no ASN set", () => {
++    const subject = ipIndicator({ id: "ind_a" });
++    const other = ipIndicator({ id: "ind_b", value: "5.6.7.8" });
++    expect(findCorrelations(subject, [other], [])).toEqual([]);
++  });
++
++  it("finds two hash indicators sharing the same malware family", () => {
++    const subject = hashIndicator({ id: "ind_a", malwareFamily: "Emotet" });
++    const other = hashIndicator({ id: "ind_b", value: "b".repeat(64), malwareFamily: "Emotet" });
++    const candidates = findCorrelations(subject, [other], []);
++    expect(candidates).toContainEqual(
++      expect.objectContaining({ relatedId: "ind_b", evidenceType: "shared_malware_family", confidence: "high" }),
++    );
++  });
++
++  it("finds a domain indicator matching a URL indicator's domain field", () => {
++    const subject = domainIndicator({ id: "ind_d", value: "evil.test" });
++    const other = urlIndicator({ id: "ind_u", domain: "evil.test" });
++    const candidates = findCorrelations(subject, [other], []);
++    expect(candidates).toContainEqual(expect.objectContaining({ relatedId: "ind_u", evidenceType: "shared_domain", confidence: "high" }));
++  });
++
++  it("finds the reverse: a URL indicator matching a domain indicator's value", () => {
++    const subject = urlIndicator({ id: "ind_u", domain: "evil.test" });
++    const other = domainIndicator({ id: "ind_d", value: "evil.test" });
++    const candidates = findCorrelations(subject, [other], []);
++    expect(candidates).toContainEqual(expect.objectContaining({ relatedId: "ind_d", evidenceType: "shared_domain", confidence: "high" }));
++  });
++
++  it("finds indicators sharing at least one tag", () => {
++    const subject = ipIndicator({ id: "ind_a", tags: ["c2-suspected", "tor-exit-node"] });
++    const other = domainIndicator({ id: "ind_b", tags: ["phishing", "c2-suspected"] });
++    const candidates = findCorrelations(subject, [other], []);
++    expect(candidates).toContainEqual(expect.objectContaining({ relatedId: "ind_b", evidenceType: "shared_tag", confidence: "low" }));
++  });
++
++  it("never includes the subject indicator itself", () => {
++    const subject = ipIndicator({ id: "ind_a", tags: ["x"] });
++    const candidates = findCorrelations(subject, [subject], []);
++    expect(candidates.find((c) => c.relatedId === "ind_a")).toBeUndefined();
++  });
++
++  it("returns an empty array when nothing shares any evidence", () => {
++    const subject = ipIndicator({ id: "ind_a" });
++    const other = hashIndicator({ id: "ind_b" });
++    expect(findCorrelations(subject, [other], [])).toEqual([]);
++  });
++
++  it("can surface multiple distinct pieces of evidence for the same related indicator", () => {
++    const subject = ipIndicator({ id: "ind_a", asn: "AS999", tags: ["botnet"] });
++    const other = ipIndicator({ id: "ind_b", value: "8.8.4.4", asn: "AS999", tags: ["botnet"] });
++    const candidates = findCorrelations(subject, [other], []);
++    const evidenceTypes = candidates.filter((c) => c.relatedId === "ind_b").map((c) => c.evidenceType);
++    expect(evidenceTypes).toEqual(expect.arrayContaining(["shared_asn", "shared_tag"]));
++  });
++});
+diff --git a/backend/src/threatGraph/correlation.ts b/backend/src/threatGraph/correlation.ts
+new file mode 100644
+index 0000000..633ee61
+--- /dev/null
++++ b/backend/src/threatGraph/correlation.ts
+@@ -0,0 +1,125 @@
++import type { ConfidenceLevel } from "../types/common.js";
++import type { Indicator } from "../types/indicator.js";
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++export type CorrelationEvidenceType =
++  | "shared_source_ip"
++  | "shared_asn"
++  | "shared_malware_family"
++  | "shared_domain"
++  | "shared_tag";
++
++export type CorrelationRelatedType = "indicator" | "security_event";
++
++/**
++ * One deterministic, evidence-backed suggestion — never persisted as a real
++ * graph edge on its own (spec §41: "AI may suggest possible relationships,
++ * but deterministic evidence should be clearly separated" — this is that
++ * separation: a candidate is explicitly not the same thing as a confirmed
++ * link in `sources[]`/`relatedIncidentIds`/etc., and nothing here is
++ * AI-derived at all). An analyst reviews these and, if they agree, links
++ * the two records for real through the existing investigation endpoints
++ * (`POST /investigations/:id/indicators`, etc.) — the same human-in-the-loop
++ * shape as Phase 6's recommendations.
++ */
++export interface CorrelationCandidate {
++  relatedType: CorrelationRelatedType;
++  relatedId: string;
++  relatedLabel: string;
++  evidenceType: CorrelationEvidenceType;
++  confidence: ConfidenceLevel;
++  description: string;
++}
++
++/** How much weight each evidence type deserves — fixed, documented, never learned or AI-adjusted. */
++const CONFIDENCE_BY_EVIDENCE: Record<CorrelationEvidenceType, ConfidenceLevel> = {
++  shared_source_ip: "high", // directly observed against this org's own systems
++  shared_malware_family: "high", // an exact, named classification match
++  shared_domain: "high", // an exact domain string match
++  shared_asn: "medium", // same hosting infrastructure, weaker than a direct observation
++  shared_tag: "low", // analyst-applied labels can be coincidental
++};
++
++function candidate(
++  relatedType: CorrelationRelatedType,
++  relatedId: string,
++  relatedLabel: string,
++  evidenceType: CorrelationEvidenceType,
++  description: string,
++): CorrelationCandidate {
++  return { relatedType, relatedId, relatedLabel, evidenceType, confidence: CONFIDENCE_BY_EVIDENCE[evidenceType], description };
++}
++
++/**
++ * Finds OTHER indicators/security events that share concrete evidence with
++ * `subject` — never a fabricated or inferred relationship, only fields that
++ * are already literally equal (spec §41: "generate relationships based on
++ * evidence... do not fabricate relationships using AI"). Both `otherIndicators`
++ * and `events` are expected to already be scoped to the caller's own
++ * organization (same tenant-isolation contract as every repository in this
++ * codebase) — this function doesn't re-check that itself.
++ */
++export function findCorrelations(
++  subject: Indicator,
++  otherIndicators: Indicator[],
++  events: SecurityEvent[],
++): CorrelationCandidate[] {
++  const candidates: CorrelationCandidate[] = [];
++
++  if (subject.type === "ip") {
++    for (const event of events) {
++      if (event.sourceIp && event.sourceIp === subject.value) {
++        candidates.push(
++          candidate(
++            "security_event",
++            event.id,
++            event.description,
++            "shared_source_ip",
++            `A security event was observed from ${subject.value}, which matches this indicator's value.`,
++          ),
++        );
++      }
++    }
++  }
++
++  for (const other of otherIndicators) {
++    if (other.id === subject.id) continue;
++
++    if (subject.type === "ip" && other.type === "ip" && subject.asn && subject.asn === other.asn) {
++      candidates.push(
++        candidate("indicator", other.id, other.value, "shared_asn", `Both indicators are hosted on ${subject.asn}.`),
++      );
++    }
++
++    if (subject.type === "hash" && other.type === "hash" && subject.malwareFamily && subject.malwareFamily === other.malwareFamily) {
++      candidates.push(
++        candidate(
++          "indicator",
++          other.id,
++          other.value,
++          "shared_malware_family",
++          `Both files are classified as ${subject.malwareFamily}.`,
++        ),
++      );
++    }
++
++    if (subject.type === "domain" && other.type === "url" && other.domain === subject.value) {
++      candidates.push(
++        candidate("indicator", other.id, other.value, "shared_domain", `This URL resolves under the domain ${subject.value}.`),
++      );
++    } else if (subject.type === "url" && other.type === "domain" && subject.domain === other.value) {
++      candidates.push(
++        candidate("indicator", other.id, other.value, "shared_domain", `This URL resolves under the domain ${other.value}.`),
++      );
++    }
++
++    const sharedTag = subject.tags.find((tag) => other.tags.includes(tag));
++    if (sharedTag) {
++      candidates.push(
++        candidate("indicator", other.id, other.value, "shared_tag", `Both indicators are tagged "${sharedTag}".`),
++      );
++    }
++  }
++
++  return candidates;
++}
+diff --git a/backend/src/threatGraph/graph.controller.ts b/backend/src/threatGraph/graph.controller.ts
+index 352081d..5474fec 100644
+--- a/backend/src/threatGraph/graph.controller.ts
++++ b/backend/src/threatGraph/graph.controller.ts
+@@ -12,5 +12,11 @@ export function createGraphController(service: GraphService) {
+       const graph = await service.getGraph(req.user.organizationId);
+       sendSuccess(res, graph);
+     }),
++
++    getCorrelations: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const candidates = await service.findCorrelationsFor(req.user.organizationId, req.params["indicatorId"]!);
++      sendSuccess(res, candidates);
++    }),
+   };
+ }
+diff --git a/backend/src/threatGraph/graph.routes.ts b/backend/src/threatGraph/graph.routes.ts
+index a0fd69f..81c9077 100644
+--- a/backend/src/threatGraph/graph.routes.ts
++++ b/backend/src/threatGraph/graph.routes.ts
+@@ -7,5 +7,6 @@ export function createGraphRouter(controller: GraphController): Router {
+   const router = Router();
+   router.use(requireAuth, requirePermission("threat_graph:read"));
+   router.get("/", controller.getGraph);
++  router.get("/correlations/:indicatorId", controller.getCorrelations);
+   return router;
+ }
+diff --git a/backend/src/threatGraph/graph.service.ts b/backend/src/threatGraph/graph.service.ts
+index fd14f7e..de10308 100644
+--- a/backend/src/threatGraph/graph.service.ts
++++ b/backend/src/threatGraph/graph.service.ts
+@@ -3,8 +3,12 @@ import type { IndicatorRepository } from "../repositories/indicator.repository.j
+ import type { UserRepository } from "../repositories/user.repository.js";
+ import type { MitreRepository } from "../repositories/mitre.repository.js";
+ import type { ThreatActorRepository } from "../repositories/threatActor.repository.js";
++import type { SecurityEventRepository } from "../repositories/securityEvent.repository.js";
+ import type { Indicator } from "../types/indicator.js";
+ import type { GraphData, GraphEdge, GraphEdgeRelation, GraphNode } from "../types/graph.js";
++import type { CorrelationCandidate } from "./correlation.js";
++import { findCorrelations } from "./correlation.js";
++import { NotFoundError } from "../errors/AppError.js";
+ 
+ const ALL_ROWS = 10_000; // see mitre.service.ts's identical comment on the same in-memory-phase tradeoff
+ 
+@@ -42,6 +46,7 @@ export class GraphService {
+     private readonly users: UserRepository,
+     private readonly mitre: MitreRepository,
+     private readonly threatActors: ThreatActorRepository,
++    private readonly securityEvents: SecurityEventRepository,
+   ) {}
+ 
+   async getGraph(organizationId: string): Promise<GraphData> {
+@@ -146,6 +151,25 @@ export class GraphService {
+ 
+     return { nodes, edges };
+   }
++
++  /**
++   * Deterministic correlation discovery (spec §41) — surfaces indicators/
++   * security events that share concrete evidence with `indicatorId` but
++   * AREN'T already an explicit edge in `getGraph()`. Never persisted, never
++   * auto-linked: see correlation.ts's header comment on why these stay
++   * "candidates" until an analyst confirms one for real.
++   */
++  async findCorrelationsFor(organizationId: string, indicatorId: string): Promise<CorrelationCandidate[]> {
++    const subject = await this.indicators.getById(organizationId, indicatorId);
++    if (!subject) throw new NotFoundError("The requested indicator was not found.");
++
++    const [{ items: otherIndicators }, { items: events }] = await Promise.all([
++      this.indicators.list(organizationId, { pageSize: ALL_ROWS }),
++      this.securityEvents.list(organizationId, 1, ALL_ROWS),
++    ]);
++
++    return findCorrelations(subject, otherIndicators, events);
++  }
+ }
+ 
+ function addIndicatorCorrelations(
+diff --git a/backend/src/threatGraph/graph.test.ts b/backend/src/threatGraph/graph.test.ts
+index aff6634..5d6a2c5 100644
+--- a/backend/src/threatGraph/graph.test.ts
++++ b/backend/src/threatGraph/graph.test.ts
+@@ -6,17 +6,21 @@ import { InMemoryIncidentRepository } from "../repositories/incident.repository.
+ import { seedDemoIncidents } from "../repositories/incident.seed.js";
+ import { InMemoryIndicatorRepository } from "../repositories/indicator.repository.js";
+ import { seedDemoIndicators } from "../repositories/indicator.seed.js";
++import { InMemorySecurityEventRepository } from "../repositories/securityEvent.repository.js";
++import type { SecurityEvent } from "../types/securityEvent.js";
+ 
+ const DEMO_PASSWORD = "ThreatLens#Demo1";
+ 
+-async function buildApp() {
++async function buildApp(securityEvents: SecurityEvent[] = []) {
+   const userRepository = new InMemoryUserRepository();
+   await seedDemoUsers(userRepository);
+   const incidentRepository = new InMemoryIncidentRepository();
+   seedDemoIncidents(incidentRepository);
+   const indicatorRepository = new InMemoryIndicatorRepository();
+   seedDemoIndicators(indicatorRepository);
+-  return createApp({ userRepository, incidentRepository, indicatorRepository });
++  const securityEventRepository = new InMemorySecurityEventRepository();
++  for (const event of securityEvents) securityEventRepository.seed(event);
++  return createApp({ userRepository, incidentRepository, indicatorRepository, securityEventRepository });
+ }
+ 
+ async function loginAs(app: Awaited<ReturnType<typeof buildApp>>, email: string): Promise<string> {
+@@ -133,4 +137,76 @@ describe("threat graph", () => {
+       expect(nodeIds).toEqual(expect.arrayContaining(["actor_1", "actor_2"]));
+     });
+   });
++
++  describe("correlations", () => {
++    it("rejects an unauthenticated request", async () => {
++      const app = await buildApp();
++      const res = await request(app).get("/api/v1/threat-graph/correlations/ind_1");
++      expect(res.status).toBe(401);
++    });
++
++    it("returns 404 for a nonexistent indicator", async () => {
++      const app = await buildApp();
++      const token = await loginAs(app, "avery.chen@northwind.test");
++      const res = await request(app).get("/api/v1/threat-graph/correlations/does-not-exist").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(404);
++    });
++
++    it("IDOR guard: an outsider gets 404 for another org's indicator", async () => {
++      const app = await buildApp();
++      const register = await request(app).post("/api/v1/auth/register").send({
++        name: "Outsider",
++        organization: "Some Other Company",
++        email: "outsider-correlation@example.test",
++        password: "Str0ng!Passw0rd#1",
++      });
++      const outsiderToken = register.body.data.accessToken as string;
++      const res = await request(app).get("/api/v1/threat-graph/correlations/ind_1").set("Authorization", `Bearer ${outsiderToken}`);
++      expect(res.status).toBe(404);
++    });
++
++    it("finds a shared-domain and shared-tag correlation between the seeded domain and URL indicators", async () => {
++      const app = await buildApp();
++      const token = await loginAs(app, "avery.chen@northwind.test");
++      // ind_4 (domain: secure-office365-verify.com) and ind_5 (url on that
++      // same domain) both carry the "phishing" tag in the seed data.
++      const res = await request(app).get("/api/v1/threat-graph/correlations/ind_4").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data).toEqual(
++        expect.arrayContaining([
++          expect.objectContaining({ relatedId: "ind_5", evidenceType: "shared_domain", confidence: "high" }),
++          expect.objectContaining({ relatedId: "ind_5", evidenceType: "shared_tag", confidence: "low" }),
++        ]),
++      );
++    });
++
++    it("finds a security event whose sourceIp matches the indicator's value", async () => {
++      const app = await buildApp([
++        {
++          id: "evt_correlate",
++          organizationId: "org_northwind",
++          type: "network",
++          description: "Inbound connection observed",
++          severity: "high",
++          sourceIp: "185.220.101.47", // matches ind_1's value
++          timestamp: "2026-08-16T00:00:00Z",
++        },
++      ]);
++      const token = await loginAs(app, "avery.chen@northwind.test");
++      const res = await request(app).get("/api/v1/threat-graph/correlations/ind_1").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data).toContainEqual(
++        expect.objectContaining({ relatedType: "security_event", relatedId: "evt_correlate", evidenceType: "shared_source_ip", confidence: "high" }),
++      );
++    });
++
++    it("returns an empty array, not an error, when an indicator has no correlations", async () => {
++      const app = await buildApp();
++      const token = await loginAs(app, "avery.chen@northwind.test");
++      // ind_7 (hash, exfiltration-tool) shares no ASN/domain/malware family/tag with anything else seeded.
++      const res = await request(app).get("/api/v1/threat-graph/correlations/ind_7").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data).toEqual([]);
++    });
++  });
+ });

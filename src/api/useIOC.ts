@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import type { IOCListParams, IOCSubmissionInput } from "@/services/ioc.service";
 import { useAuth } from "@/hooks/useAuth";
 import { queryKeys } from "./keys";

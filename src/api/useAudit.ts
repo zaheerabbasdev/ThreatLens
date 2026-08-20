@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import type { AuditListParams } from "@/services/audit.service";
 import { queryKeys } from "./keys";
 

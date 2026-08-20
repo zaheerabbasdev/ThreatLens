@@ -6,7 +6,7 @@ import { Input } from "@/components/Input";
 import { Button } from "@/components/Button";
 import { Icon } from "@/components/Icon";
 import { AlertBanner } from "@/components/Alert";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import { resetPasswordSchema, type ResetPasswordInput } from "@/schemas/auth";
 import styles from "./AuthForm.module.css";
 

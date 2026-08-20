@@ -1,0 +1,855 @@
+diff --git a/backend/src/anomalyDetection/anomalyDetection.controller.ts b/backend/src/anomalyDetection/anomalyDetection.controller.ts
+new file mode 100644
+index 0000000..2415221
+--- /dev/null
++++ b/backend/src/anomalyDetection/anomalyDetection.controller.ts
+@@ -0,0 +1,32 @@
++import { asyncHandler } from "../utils/asyncHandler.js";
++import { sendSuccess } from "../utils/apiResponse.js";
++import { UnauthorizedError } from "../errors/AppError.js";
++import type { AnomalyDetectionService } from "./anomalyDetection.service.js";
++import { ingestEventSchema, listQuerySchema, analyzeQuerySchema } from "./anomalyDetection.schemas.js";
++
++export type AnomalyDetectionController = ReturnType<typeof createAnomalyDetectionController>;
++
++export function createAnomalyDetectionController(service: AnomalyDetectionService) {
++  return {
++    ingest: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const input = ingestEventSchema.parse(req.body);
++      const event = await service.ingest(req.user.organizationId, input);
++      sendSuccess(res, event, undefined, 201);
++    }),
++
++    list: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const { page, pageSize } = listQuerySchema.parse(req.query);
++      const result = await service.list(req.user.organizationId, page, pageSize);
++      sendSuccess(res, result.items, { total: result.total, page: result.page, pageSize: result.pageSize });
++    }),
++
++    analyze: asyncHandler(async (req, res) => {
++      if (!req.user) throw new UnauthorizedError();
++      const { windowHours } = analyzeQuerySchema.parse(req.query);
++      const result = await service.analyze(req.user.organizationId, req.user.id, req.params["userId"]!, windowHours);
++      sendSuccess(res, result);
++    }),
++  };
++}
+diff --git a/backend/src/anomalyDetection/anomalyDetection.routes.ts b/backend/src/anomalyDetection/anomalyDetection.routes.ts
+new file mode 100644
+index 0000000..c9a471f
+--- /dev/null
++++ b/backend/src/anomalyDetection/anomalyDetection.routes.ts
+@@ -0,0 +1,16 @@
++import { Router } from "express";
++import { requireAuth } from "../middleware/requireAuth.js";
++import { requirePermission } from "../middleware/requirePermission.js";
++import { createAnomalyRateLimit } from "../middleware/rateLimit.js";
++import type { AnomalyDetectionController } from "./anomalyDetection.controller.js";
++
++export function createAnomalyDetectionRouter(controller: AnomalyDetectionController): Router {
++  const router = Router();
++  router.use(requireAuth);
++
++  router.get("/", requirePermission("anomaly:read"), controller.list);
++  router.post("/", requirePermission("anomaly:detect"), controller.ingest);
++  router.post("/analyze/:userId", requirePermission("anomaly:detect"), createAnomalyRateLimit(), controller.analyze);
++
++  return router;
++}
+diff --git a/backend/src/anomalyDetection/anomalyDetection.schemas.ts b/backend/src/anomalyDetection/anomalyDetection.schemas.ts
+new file mode 100644
+index 0000000..817a251
+--- /dev/null
++++ b/backend/src/anomalyDetection/anomalyDetection.schemas.ts
+@@ -0,0 +1,33 @@
++import { z } from "zod";
++
++const TYPES = ["authentication", "network", "file_access", "configuration_change", "anomaly"] as const;
++const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
++
++export const ingestEventSchema = z.object({
++  userId: z.string().trim().min(1).max(128).optional(),
++  type: z.enum(TYPES),
++  description: z.string().trim().min(1).max(2000),
++  severity: z.enum(SEVERITIES),
++  sourceIp: z.string().trim().max(64).optional(),
++  isNewLocation: z.boolean().optional(),
++  authFailed: z.boolean().optional(),
++  isDownload: z.boolean().optional(),
++  endpoint: z.string().trim().max(500).optional(),
++  // Optional so an ingesting system doesn't have to compute "now" itself;
++  // defaults server-side in the service if omitted.
++  timestamp: z.string().datetime().optional(),
++});
++export type IngestEventInput = z.infer<typeof ingestEventSchema>;
++
++export const listQuerySchema = z.object({
++  page: z.coerce.number().int().min(1).default(1),
++  pageSize: z.coerce.number().int().min(1).max(100).default(20),
++});
++export type EventListQuery = z.infer<typeof listQuerySchema>;
++
++export const analyzeQuerySchema = z.object({
++  // Hours of recent activity to score; capped at 30 days so a single
++  // request can't force scanning a user's entire history.
++  windowHours: z.coerce.number().int().min(1).max(24 * 30).default(24),
++});
++export type AnalyzeQuery = z.infer<typeof analyzeQuerySchema>;
+diff --git a/backend/src/anomalyDetection/anomalyDetection.service.ts b/backend/src/anomalyDetection/anomalyDetection.service.ts
+new file mode 100644
+index 0000000..17cb571
+--- /dev/null
++++ b/backend/src/anomalyDetection/anomalyDetection.service.ts
+@@ -0,0 +1,104 @@
++import { randomUUID } from "node:crypto";
++import { NotFoundError, ServiceUnavailableError } from "../errors/AppError.js";
++import type { SecurityEventRepository } from "../repositories/securityEvent.repository.js";
++import type { UserRepository } from "../repositories/user.repository.js";
++import type { AuditService } from "../audit/audit.service.js";
++import type { SecurityEvent } from "../types/securityEvent.js";
++import type { PaginatedResult } from "../types/common.js";
++import type { AnomalyDetectionOutput, AnomalyDetectionProvider } from "./anomalyProvider.js";
++import { AnomalyProviderError } from "./anomalyProvider.js";
++import { computeFeatures } from "./featureExtraction.js";
++import type { IngestEventInput } from "./anomalyDetection.schemas.js";
++import { logger } from "../utils/logger.js";
++
++export interface AnomalyDetectionResult {
++  userId: string;
++  windowHours: number;
++  featuresObserved: ReturnType<typeof computeFeatures>;
++  result: AnomalyDetectionOutput;
++}
++
++export class AnomalyDetectionService {
++  constructor(
++    private readonly events: SecurityEventRepository,
++    private readonly users: UserRepository,
++    private readonly audit: AuditService,
++    /** null when ML_SERVICE_URL isn't configured — analyze() then fails with a clean 503, same posture as AIService/IOCService (spec §40's provider-unavailable handling generalized to Phase 8). */
++    private readonly provider: AnomalyDetectionProvider | null,
++  ) {}
++
++  async ingest(organizationId: string, input: IngestEventInput): Promise<SecurityEvent> {
++    const event: SecurityEvent = {
++      id: randomUUID(),
++      organizationId,
++      userId: input.userId,
++      type: input.type,
++      description: input.description,
++      severity: input.severity,
++      sourceIp: input.sourceIp,
++      isNewLocation: input.isNewLocation,
++      authFailed: input.authFailed,
++      isDownload: input.isDownload,
++      endpoint: input.endpoint,
++      timestamp: input.timestamp ?? new Date().toISOString(),
++    };
++    return this.events.create(event);
++  }
++
++  async list(organizationId: string, page: number, pageSize: number): Promise<PaginatedResult<SecurityEvent>> {
++    const { items, total } = await this.events.list(organizationId, page, pageSize);
++    return { items, total, page, pageSize };
++  }
++
++  /**
++   * Scores one user's recent behavior against their own history
++   * (spec §42). `targetUserId` is validated against the caller's own
++   * organization first — same object-level-authorization rule as every
++   * other cross-referenced ID in this codebase (spec §19/§20): a userId
++   * from another org gets an identical 404, not a 403 that would confirm
++   * the ID exists elsewhere.
++   */
++  async analyze(organizationId: string, actorUserId: string, targetUserId: string, windowHours: number): Promise<AnomalyDetectionResult> {
++    const targetUser = await this.users.findById(targetUserId);
++    if (!targetUser || targetUser.organizationId !== organizationId) {
++      throw new NotFoundError("The requested user was not found.");
++    }
++
++    if (!this.provider) {
++      throw new ServiceUnavailableError("Anomaly detection isn't configured for this deployment (no ML_SERVICE_URL set).");
++    }
++
++    const history = await this.events.listForUser(organizationId, targetUserId);
++    const features = computeFeatures(history, windowHours);
++
++    let output: AnomalyDetectionOutput;
++    try {
++      const { output: providerOutput } = await this.provider.detect(features);
++      output = providerOutput;
++    } catch (err) {
++      if (err instanceof AnomalyProviderError) {
++        logger.error({ err, organizationId, targetUserId }, "Anomaly detection provider call failed");
++        throw new ServiceUnavailableError("The anomaly detection service couldn't complete this request. Please try again.");
++      }
++      throw err;
++    }
++
++    const actor = await this.users.findById(actorUserId);
++    await this.audit.record({
++      organizationId,
++      actorId: actorUserId,
++      actorName: actor?.name ?? "Unknown",
++      action: "ANOMALY_DETECTED",
++      resourceType: "user",
++      resourceId: targetUserId,
++      result: "success",
++      // Reflects what was FOUND, not the outcome of the check itself — an
++      // audit entry recording "we looked and found something concerning"
++      // is itself a medium-severity event, same reasoning as
++      // RECOMMENDATION_APPROVED in ai.service.ts.
++      severity: output.isAnomaly ? "medium" : "info",
++    });
++
++    return { userId: targetUserId, windowHours, featuresObserved: features, result: output };
++  }
++}
+diff --git a/backend/src/anomalyDetection/anomalyDetection.test.ts b/backend/src/anomalyDetection/anomalyDetection.test.ts
+new file mode 100644
+index 0000000..87d6918
+--- /dev/null
++++ b/backend/src/anomalyDetection/anomalyDetection.test.ts
+@@ -0,0 +1,172 @@
++import { describe, expect, it } from "vitest";
++import request from "supertest";
++import { createApp } from "../app.js";
++import { InMemoryUserRepository, seedDemoUsers } from "../repositories/user.repository.js";
++import { InMemorySecurityEventRepository } from "../repositories/securityEvent.repository.js";
++import { seedDemoSecurityEvents } from "../repositories/securityEvent.seed.js";
++import type { AnomalyDetectionProvider } from "./anomalyProvider.js";
++import type { EventFeatures } from "./featureExtraction.js";
++
++const DEMO_PASSWORD = "ThreatLens#Demo1";
++
++class FakeProvider implements AnomalyDetectionProvider {
++  readonly name = "fake-ml";
++  readonly calls: EventFeatures[] = [];
++  constructor(private readonly output: Awaited<ReturnType<AnomalyDetectionProvider["detect"]>>["output"]) {}
++  async detect(features: EventFeatures) {
++    this.calls.push(features);
++    return { output: this.output, durationMs: 1 };
++  }
++}
++
++function anomalous() {
++  return new FakeProvider({
++    isAnomaly: true,
++    anomalyScore: 91.4,
++    confidence: "high",
++    contributingFeatures: [{ feature: "auth_failure_count", zScore: 3.2, direction: "higher_than_typical" }],
++    modelVersion: "test-v1",
++  });
++}
++
++function benign() {
++  return new FakeProvider({
++    isAnomaly: false,
++    anomalyScore: 8.2,
++    confidence: "low",
++    contributingFeatures: [],
++    modelVersion: "test-v1",
++  });
++}
++
++async function buildApp(anomalyDetectionProvider: AnomalyDetectionProvider | null = null) {
++  const userRepository = new InMemoryUserRepository();
++  await seedDemoUsers(userRepository);
++  const securityEventRepository = new InMemorySecurityEventRepository();
++  await seedDemoSecurityEvents(securityEventRepository);
++  return createApp({ userRepository, securityEventRepository, anomalyDetectionProvider });
++}
++
++async function loginAs(app: Awaited<ReturnType<typeof buildApp>>, email: string): Promise<string> {
++  const res = await request(app).post("/api/v1/auth/login").send({ email, password: DEMO_PASSWORD });
++  return res.body.data.accessToken as string;
++}
++
++describe("security-events", () => {
++  describe("authentication and authorization", () => {
++    it("rejects an unauthenticated ingest", async () => {
++      const app = await buildApp();
++      const res = await request(app).post("/api/v1/security-events");
++      expect(res.status).toBe(401);
++    });
++
++    it("a viewer (has anomaly:read but not anomaly:detect) can list but not ingest", async () => {
++      const app = await buildApp();
++      const token = await loginAs(app, "sam.whitfield@northwind.test");
++      const list = await request(app).get("/api/v1/security-events").set("Authorization", `Bearer ${token}`);
++      expect(list.status).toBe(200);
++
++      const ingest = await request(app)
++        .post("/api/v1/security-events")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ type: "authentication", description: "test", severity: "info" });
++      expect(ingest.status).toBe(403);
++    });
++
++    it("a security_analyst (has anomaly:detect) can ingest", async () => {
++      const app = await buildApp();
++      const token = await loginAs(app, "diego.alvarez@northwind.test");
++      const res = await request(app)
++        .post("/api/v1/security-events")
++        .set("Authorization", `Bearer ${token}`)
++        .send({ type: "authentication", description: "Login", severity: "info", userId: "user_3" });
++      expect(res.status).toBe(201);
++      expect(res.body.data.type).toBe("authentication");
++    });
++  });
++
++  describe("list", () => {
++    it("lists the seeded events for the org", async () => {
++      const app = await buildApp();
++      const token = await loginAs(app, "avery.chen@northwind.test");
++      const res = await request(app).get("/api/v1/security-events").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++      expect(res.body.meta.total).toBeGreaterThan(0);
++    });
++  });
++
++  describe("analyze", () => {
++    it("returns 503 when no ML provider is configured, not a fake result", async () => {
++      const app = await buildApp(null);
++      const token = await loginAs(app, "diego.alvarez@northwind.test");
++      const res = await request(app).post("/api/v1/security-events/analyze/user_3").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(503);
++    });
++
++    it("a viewer (lacks anomaly:detect) is forbidden from analyzing", async () => {
++      const app = await buildApp(anomalous());
++      const token = await loginAs(app, "sam.whitfield@northwind.test");
++      const res = await request(app).post("/api/v1/security-events/analyze/user_3").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(403);
++    });
++
++    it("a security_analyst can analyze a user and gets the provider's real result back", async () => {
++      const app = await buildApp(anomalous());
++      const token = await loginAs(app, "diego.alvarez@northwind.test");
++      const res = await request(app).post("/api/v1/security-events/analyze/user_3").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data.result.isAnomaly).toBe(true);
++      expect(res.body.data.result.anomalyScore).toBe(91.4);
++      expect(res.body.data.userId).toBe("user_3");
++    });
++
++    it("a benign result also comes through unmodified", async () => {
++      const app = await buildApp(benign());
++      const token = await loginAs(app, "diego.alvarez@northwind.test");
++      const res = await request(app).post("/api/v1/security-events/analyze/user_3").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(200);
++      expect(res.body.data.result.isAnomaly).toBe(false);
++    });
++
++    it("returns 404 for a nonexistent user", async () => {
++      const app = await buildApp(anomalous());
++      const token = await loginAs(app, "diego.alvarez@northwind.test");
++      const res = await request(app).post("/api/v1/security-events/analyze/not-a-real-user").set("Authorization", `Bearer ${token}`);
++      expect(res.status).toBe(404);
++    });
++
++    it("IDOR guard: cannot analyze a user from a different organization", async () => {
++      const app = await buildApp(anomalous());
++      const register = await request(app).post("/api/v1/auth/register").send({
++        name: "Outsider",
++        organization: "Some Other Company",
++        email: "outsider-anomaly@example.test",
++        password: "Str0ng!Passw0rd#1",
++      });
++      const outsiderToken = register.body.data.accessToken as string;
++      // user_3 exists, but belongs to org_northwind, not the outsider's org.
++      const res = await request(app).post("/api/v1/security-events/analyze/user_3").set("Authorization", `Bearer ${outsiderToken}`);
++      expect(res.status).toBe(404);
++    });
++
++    it("respects the windowHours query param", async () => {
++      const provider = anomalous();
++      const app = await buildApp(provider);
++      const token = await loginAs(app, "diego.alvarez@northwind.test");
++      await request(app).post("/api/v1/security-events/analyze/user_3?windowHours=48").set("Authorization", `Bearer ${token}`);
++      expect(provider.calls).toHaveLength(1);
++    });
++
++    it("records an ANOMALY_DETECTED audit entry under the real actor", async () => {
++      const app = await buildApp(anomalous());
++      const token = await loginAs(app, "avery.chen@northwind.test"); // super_admin, has audit:read
++      await request(app).post("/api/v1/security-events/analyze/user_3").set("Authorization", `Bearer ${token}`);
++      const audit = await request(app).get("/api/v1/audit-logs").set("Authorization", `Bearer ${token}`);
++      expect(audit.body.data).toEqual(
++        expect.arrayContaining([
++          expect.objectContaining({ action: "ANOMALY_DETECTED", resourceId: "user_3", actorName: "Avery Chen" }),
++        ]),
++      );
++    });
++  });
++});
+diff --git a/backend/src/anomalyDetection/anomalyProvider.ts b/backend/src/anomalyDetection/anomalyProvider.ts
+new file mode 100644
+index 0000000..bd9ec5f
+--- /dev/null
++++ b/backend/src/anomalyDetection/anomalyProvider.ts
+@@ -0,0 +1,40 @@
++import type { EventFeatures } from "./featureExtraction.js";
++
++export interface FeatureContribution {
++  feature: string;
++  zScore: number;
++  direction: "higher_than_typical" | "lower_than_typical";
++}
++
++/**
++ * What the ML service says about one entity's recent behavior. Deliberately
++ * carries no "incident" or "alert" semantics of its own — anomalyDetection.
++ * service.ts decides what an anomaly result means for the rest of the
++ * platform (spec §39: AI/ML never owns a security decision, only informs
++ * one).
++ */
++export interface AnomalyDetectionOutput {
++  isAnomaly: boolean;
++  /** 0-100, higher = more anomalous — the ML service's own deterministic scale, see ml-service/app/model.py. */
++  anomalyScore: number;
++  confidence: "low" | "medium" | "high";
++  contributingFeatures: FeatureContribution[];
++  modelVersion: string;
++}
++
++export interface AnomalyDetectionProvider {
++  readonly name: string;
++  detect(features: EventFeatures): Promise<{ output: AnomalyDetectionOutput; durationMs: number }>;
++}
++
++/** Same role as ThreatIntelProviderError/AIProviderError: wraps any provider-layer failure (network, timeout, bad response shape) so it never reaches a controller raw. */
++export class AnomalyProviderError extends Error {
++  constructor(
++    message: string,
++    override readonly cause?: unknown,
++    readonly retryable = true,
++  ) {
++    super(message);
++    this.name = "AnomalyProviderError";
++  }
++}
+diff --git a/backend/src/anomalyDetection/featureExtraction.test.ts b/backend/src/anomalyDetection/featureExtraction.test.ts
+new file mode 100644
+index 0000000..3959f66
+--- /dev/null
++++ b/backend/src/anomalyDetection/featureExtraction.test.ts
+@@ -0,0 +1,107 @@
++import { describe, expect, it } from "vitest";
++import { computeFeatures } from "./featureExtraction.js";
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++const ORG = "org_1";
++const USER = "user_1";
++const NOW = new Date("2026-08-20T12:00:00Z");
++
++function event(overrides: Partial<SecurityEvent>): SecurityEvent {
++  return {
++    id: "evt_" + Math.random(),
++    organizationId: ORG,
++    userId: USER,
++    type: "authentication",
++    description: "test event",
++    severity: "info",
++    timestamp: NOW.toISOString(),
++    ...overrides,
++  };
++}
++
++describe("computeFeatures", () => {
++  it("returns all zeros for no events", () => {
++    const features = computeFeatures([], 24, NOW);
++    expect(features).toEqual({
++      loginHourDeviation: 0,
++      newGeoLocation: 0,
++      requestFrequency: 0,
++      resourceAccessCount: 0,
++      fileDownloadCount: 0,
++      authFailureCount: 0,
++      unusualEndpointCount: 0,
++    });
++  });
++
++  it("computes loginHourDeviation against the baseline typical hour, not an absolute clock value", () => {
++    // Baseline: logins consistently around 09:00 UTC, well before the window.
++    const baseline = Array.from({ length: 5 }, (_, i) =>
++      event({ timestamp: new Date(`2026-08-${10 + i}T09:00:00Z`).toISOString() }),
++    );
++    // Window event: a login at 21:00 UTC — 12 hours off the typical hour.
++    const windowLogin = event({ timestamp: "2026-08-20T21:00:00Z" });
++    const features = computeFeatures([...baseline, windowLogin], 24, new Date("2026-08-21T00:00:00Z"));
++    expect(features.loginHourDeviation).toBeCloseTo(12, 0);
++  });
++
++  it("stays at 0 deviation with no baseline history to compare against", () => {
++    const windowLogin = event({ timestamp: "2026-08-20T21:00:00Z" });
++    const features = computeFeatures([windowLogin], 24, new Date("2026-08-21T00:00:00Z"));
++    expect(features.loginHourDeviation).toBe(0);
++  });
++
++  it("flags newGeoLocation when any window event is marked isNewLocation", () => {
++    const features = computeFeatures([event({ isNewLocation: true })], 24, NOW);
++    expect(features.newGeoLocation).toBe(1);
++  });
++
++  it("counts requests per minute over the window", () => {
++    // 120 events over a 24h (1440 minute) window = 1 request every 12 minutes.
++    const events = Array.from({ length: 120 }, () => event({}));
++    const features = computeFeatures(events, 24, NOW);
++    expect(features.requestFrequency).toBeCloseTo(120 / 1440, 5);
++  });
++
++  it("counts distinct endpoints for resourceAccessCount, not raw event count", () => {
++    const events = [
++      event({ endpoint: "/incidents" }),
++      event({ endpoint: "/incidents" }),
++      event({ endpoint: "/alerts" }),
++    ];
++    const features = computeFeatures(events, 24, NOW);
++    expect(features.resourceAccessCount).toBe(2);
++  });
++
++  it("counts file downloads", () => {
++    const events = [event({ isDownload: true }), event({ isDownload: true }), event({ isDownload: false })];
++    expect(computeFeatures(events, 24, NOW).fileDownloadCount).toBe(2);
++  });
++
++  it("counts only failed authentication attempts", () => {
++    const events = [
++      event({ type: "authentication", authFailed: true }),
++      event({ type: "authentication", authFailed: false }),
++      event({ type: "authentication", authFailed: true }),
++    ];
++    expect(computeFeatures(events, 24, NOW).authFailureCount).toBe(2);
++  });
++
++  it("counts endpoints not seen in the baseline as unusual", () => {
++    const baseline = [event({ endpoint: "/incidents", timestamp: "2026-08-01T00:00:00Z" })];
++    const windowEvents = [event({ endpoint: "/admin/export" }), event({ endpoint: "/incidents" })];
++    const features = computeFeatures([...baseline, ...windowEvents], 24, NOW);
++    expect(features.unusualEndpointCount).toBe(1);
++  });
++
++  it("does not flag anything as unusual when there's no baseline endpoint history", () => {
++    const features = computeFeatures([event({ endpoint: "/admin/export" })], 24, NOW);
++    expect(features.unusualEndpointCount).toBe(0);
++  });
++
++  it("excludes events outside the window from window-based counts", () => {
++    const stale = event({ isDownload: true, timestamp: "2026-08-01T00:00:00Z" });
++    const fresh = event({ isDownload: true, timestamp: NOW.toISOString() });
++    const features = computeFeatures([stale, fresh], 24, NOW);
++    expect(features.fileDownloadCount).toBe(1);
++  });
++});
+diff --git a/backend/src/anomalyDetection/featureExtraction.ts b/backend/src/anomalyDetection/featureExtraction.ts
+new file mode 100644
+index 0000000..519520d
+--- /dev/null
++++ b/backend/src/anomalyDetection/featureExtraction.ts
+@@ -0,0 +1,76 @@
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++/**
++ * The exact seven features spec §42 names, in the exact order the Python
++ * service's FEATURE_NAMES expects (ml-service/app/schemas.py) — keeping
++ * both lists in the same order matters, so this file's field order is the
++ * single source of truth on the Node side.
++ */
++export interface EventFeatures {
++  loginHourDeviation: number;
++  newGeoLocation: number;
++  requestFrequency: number;
++  resourceAccessCount: number;
++  fileDownloadCount: number;
++  authFailureCount: number;
++  unusualEndpointCount: number;
++}
++
++function circularHourDiff(a: number, b: number): number {
++  const diff = Math.abs(a - b) % 24;
++  return Math.min(diff, 24 - diff);
++}
++
++/**
++ * Deterministic feature computation from raw SecurityEvents — never AI,
++ * never the ML service's job (it only ever sees the finished numbers,
++ * spec §42). `events` should already be scoped to one organization + one
++ * user; this function doesn't re-check tenant isolation, the repository
++ * layer does (spec §19/§20, same as every other domain module).
++ *
++ * Splits `events` into a "baseline" (everything before the window — what
++ * "typical" means for this user) and the "window" itself (what's being
++ * scored). With no baseline history, deviation-dependent features default
++ * to 0 rather than guessing — an unproven user isn't the same as a
++ * confirmed-anomalous one.
++ */
++export function computeFeatures(events: SecurityEvent[], windowHours: number, now: Date = new Date()): EventFeatures {
++  const windowStartMs = now.getTime() - windowHours * 60 * 60 * 1000;
++  const windowEvents = events.filter((e) => new Date(e.timestamp).getTime() >= windowStartMs);
++  const baselineEvents = events.filter((e) => new Date(e.timestamp).getTime() < windowStartMs);
++
++  const baselineLoginHours = baselineEvents.filter((e) => e.type === "authentication").map((e) => new Date(e.timestamp).getUTCHours());
++  const windowLoginHours = windowEvents.filter((e) => e.type === "authentication").map((e) => new Date(e.timestamp).getUTCHours());
++
++  let loginHourDeviation = 0;
++  if (baselineLoginHours.length > 0 && windowLoginHours.length > 0) {
++    const typicalHour = baselineLoginHours.reduce((sum, h) => sum + h, 0) / baselineLoginHours.length;
++    loginHourDeviation = Math.max(...windowLoginHours.map((h) => circularHourDiff(h, typicalHour)));
++  }
++
++  const newGeoLocation = windowEvents.some((e) => e.isNewLocation) ? 1 : 0;
++
++  const requestFrequency = windowHours > 0 ? windowEvents.length / (windowHours * 60) : 0;
++
++  const resourceAccessCount = new Set(windowEvents.map((e) => e.endpoint).filter((e): e is string => Boolean(e))).size;
++
++  const fileDownloadCount = windowEvents.filter((e) => e.isDownload).length;
++
++  const authFailureCount = windowEvents.filter((e) => e.type === "authentication" && e.authFailed).length;
++
++  const knownEndpoints = new Set(baselineEvents.map((e) => e.endpoint).filter((e): e is string => Boolean(e)));
++  const unusualEndpointCount =
++    knownEndpoints.size > 0
++      ? windowEvents.filter((e) => e.endpoint && !knownEndpoints.has(e.endpoint)).length
++      : 0;
++
++  return {
++    loginHourDeviation,
++    newGeoLocation,
++    requestFrequency,
++    resourceAccessCount,
++    fileDownloadCount,
++    authFailureCount,
++    unusualEndpointCount,
++  };
++}
+diff --git a/backend/src/anomalyDetection/mlServiceProvider.test.ts b/backend/src/anomalyDetection/mlServiceProvider.test.ts
+new file mode 100644
+index 0000000..88bbd1d
+--- /dev/null
++++ b/backend/src/anomalyDetection/mlServiceProvider.test.ts
+@@ -0,0 +1,96 @@
++import { describe, expect, it, vi } from "vitest";
++import { MlServiceProvider, type HttpClient } from "./mlServiceProvider.js";
++import { AnomalyProviderError } from "./anomalyProvider.js";
++import type { EventFeatures } from "./featureExtraction.js";
++
++const FEATURES: EventFeatures = {
++  loginHourDeviation: 1,
++  newGeoLocation: 0,
++  requestFrequency: 0.1,
++  resourceAccessCount: 3,
++  fileDownloadCount: 0,
++  authFailureCount: 0,
++  unusualEndpointCount: 0,
++};
++
++function fakeClient(status: number, body: unknown): HttpClient {
++  return { post: vi.fn().mockResolvedValue({ status, json: () => Promise.resolve(body) }) };
++}
++
++function validResponse(overrides: Partial<Record<string, unknown>> = {}) {
++  return {
++    is_anomaly: false,
++    anomaly_score: 12.5,
++    confidence: "low",
++    contributing_features: [{ feature: "request_frequency", z_score: 0.4, direction: "higher_than_typical" }],
++    model_version: "isolation-forest-synthetic-baseline-v1",
++    ...overrides,
++  };
++}
++
++describe("MlServiceProvider", () => {
++  it("maps a valid response to AnomalyDetectionOutput", async () => {
++    const client = fakeClient(200, validResponse());
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    const result = await provider.detect(FEATURES);
++    expect(result.output.isAnomaly).toBe(false);
++    expect(result.output.anomalyScore).toBe(12.5);
++    expect(result.output.confidence).toBe("low");
++    expect(result.output.contributingFeatures[0]).toEqual({
++      feature: "request_frequency",
++      zScore: 0.4,
++      direction: "higher_than_typical",
++    });
++  });
++
++  it("posts to <baseUrl>/analyze with snake_case feature keys the Python service expects", async () => {
++    const client = fakeClient(200, validResponse());
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    await provider.detect(FEATURES);
++    const [url, body] = vi.mocked(client.post).mock.calls[0]!;
++    expect(url).toBe("http://ml.local/analyze");
++    expect(body).toEqual({
++      login_hour_deviation: 1,
++      new_geo_location: 0,
++      request_frequency: 0.1,
++      resource_access_count: 3,
++      file_download_count: 0,
++      auth_failure_count: 0,
++      unusual_endpoint_count: 0,
++    });
++  });
++
++  it("throws a non-retryable AnomalyProviderError on 422 (our own payload was invalid)", async () => {
++    const client = fakeClient(422, {});
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    const err = await provider.detect(FEATURES).catch((e: unknown) => e);
++    expect(err).toBeInstanceOf(AnomalyProviderError);
++    expect((err as AnomalyProviderError).retryable).toBe(false);
++  });
++
++  it("throws a retryable AnomalyProviderError on a 5xx", async () => {
++    const client = fakeClient(503, {});
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    const err = await provider.detect(FEATURES).catch((e: unknown) => e);
++    expect(err).toBeInstanceOf(AnomalyProviderError);
++    expect((err as AnomalyProviderError).retryable).toBe(true);
++  });
++
++  it("throws AnomalyProviderError when the response doesn't match the expected schema", async () => {
++    const client = fakeClient(200, { totally: "wrong" });
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    await expect(provider.detect(FEATURES)).rejects.toBeInstanceOf(AnomalyProviderError);
++  });
++
++  it("wraps a network failure as AnomalyProviderError, not a raw error", async () => {
++    const client: HttpClient = { post: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) };
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    await expect(provider.detect(FEATURES)).rejects.toBeInstanceOf(AnomalyProviderError);
++  });
++
++  it("rejects a score outside 0-100 as a schema violation", async () => {
++    const client = fakeClient(200, validResponse({ anomaly_score: 142 }));
++    const provider = new MlServiceProvider(client, "http://ml.local");
++    await expect(provider.detect(FEATURES)).rejects.toBeInstanceOf(AnomalyProviderError);
++  });
++});
+diff --git a/backend/src/anomalyDetection/mlServiceProvider.ts b/backend/src/anomalyDetection/mlServiceProvider.ts
+new file mode 100644
+index 0000000..151c310
+--- /dev/null
++++ b/backend/src/anomalyDetection/mlServiceProvider.ts
+@@ -0,0 +1,119 @@
++import { z } from "zod";
++import type { EventFeatures } from "./featureExtraction.js";
++import type { AnomalyDetectionOutput, AnomalyDetectionProvider } from "./anomalyProvider.js";
++import { AnomalyProviderError } from "./anomalyProvider.js";
++
++/** Minimal structural interface for the HTTP client this provider needs — same DI pattern as ai/openaiProvider.ts's ChatClient and threatIntel/virusTotalProvider.ts's HttpClient. */
++export interface HttpClient {
++  post(url: string, body: unknown): Promise<{ status: number; json(): Promise<unknown> }>;
++}
++
++/** Real implementation, used by server.ts — wraps global fetch with a hard timeout. The ML service is on-prem/self-hosted (unlike OpenAI/VirusTotal), so a short timeout is appropriate: a slow response means the service itself is struggling, not normal internet latency. */
++export function buildFetchHttpClient(timeoutMs = 5000): HttpClient {
++  return {
++    async post(url, body) {
++      const controller = new AbortController();
++      const timer = setTimeout(() => controller.abort(), timeoutMs);
++      try {
++        const res = await fetch(url, {
++          method: "POST",
++          headers: { "content-type": "application/json" },
++          body: JSON.stringify(body),
++          signal: controller.signal,
++        });
++        return { status: res.status, json: () => res.json() };
++      } finally {
++        clearTimeout(timer);
++      }
++    },
++  };
++}
++
++// Only the subset of the ML service's response this provider reads — zod
++// validated rather than trusted, same reasoning as ai/openaiProvider.ts and
++// threatIntel/virusTotalProvider.ts: an internal service's response shape
++// changing shouldn't turn into a silently-wrong anomaly score.
++const contributionSchema = z.object({
++  feature: z.string(),
++  z_score: z.number(),
++  direction: z.enum(["higher_than_typical", "lower_than_typical"]),
++});
++const analyzeResponseSchema = z.object({
++  is_anomaly: z.boolean(),
++  anomaly_score: z.number().min(0).max(100),
++  confidence: z.enum(["low", "medium", "high"]),
++  contributing_features: z.array(contributionSchema),
++  model_version: z.string(),
++});
++
++function toFeaturePayload(features: EventFeatures): Record<string, number> {
++  // Field names must match ml-service/app/schemas.py's FEATURE_NAMES
++  // exactly — this is the one place that mapping happens.
++  return {
++    login_hour_deviation: features.loginHourDeviation,
++    new_geo_location: features.newGeoLocation,
++    request_frequency: features.requestFrequency,
++    resource_access_count: features.resourceAccessCount,
++    file_download_count: features.fileDownloadCount,
++    auth_failure_count: features.authFailureCount,
++    unusual_endpoint_count: features.unusualEndpointCount,
++  };
++}
++
++/** Calls the self-hosted Python FastAPI anomaly-detection service (spec §42). */
++export class MlServiceProvider implements AnomalyDetectionProvider {
++  readonly name = "ml-service";
++
++  constructor(
++    private readonly http: HttpClient,
++    private readonly baseUrl: string,
++  ) {}
++
++  async detect(features: EventFeatures): Promise<{ output: AnomalyDetectionOutput; durationMs: number }> {
++    const start = performance.now();
++
++    let res: Awaited<ReturnType<HttpClient["post"]>>;
++    try {
++      res = await this.http.post(`${this.baseUrl}/analyze`, toFeaturePayload(features));
++    } catch (err) {
++      throw new AnomalyProviderError("ML service request failed (network error or timeout).", err, true);
++    }
++
++    const durationMs = Math.round(performance.now() - start);
++
++    if (res.status === 422) {
++      // Our own feature payload was malformed — a bug on this side, not a
++      // transient provider problem, so it's not worth retrying.
++      throw new AnomalyProviderError("ML service rejected the feature payload as invalid.", undefined, false);
++    }
++    if (res.status !== 200) {
++      throw new AnomalyProviderError(`ML service returned an unexpected status (${res.status}).`, undefined, res.status >= 500);
++    }
++
++    let json: unknown;
++    try {
++      json = await res.json();
++    } catch (err) {
++      throw new AnomalyProviderError("ML service returned a response that wasn't valid JSON.", err, true);
++    }
++
++    const parsed = analyzeResponseSchema.safeParse(json);
++    if (!parsed.success) {
++      throw new AnomalyProviderError("ML service returned an unexpected response shape.", parsed.error, false);
++    }
++
++    const output: AnomalyDetectionOutput = {
++      isAnomaly: parsed.data.is_anomaly,
++      anomalyScore: parsed.data.anomaly_score,
++      confidence: parsed.data.confidence,
++      contributingFeatures: parsed.data.contributing_features.map((c) => ({
++        feature: c.feature,
++        zScore: c.z_score,
++        direction: c.direction,
++      })),
++      modelVersion: parsed.data.model_version,
++    };
++
++    return { output, durationMs };
++  }
++}

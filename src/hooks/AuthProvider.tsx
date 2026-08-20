@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { services } from "@/services/mock";
+import { services } from "@/services";
 import type { LoginInput, RegisterInput } from "@/services/auth.service";
 import type { AuthSession } from "@/types";
 import { AuthContext, type AuthContextValue } from "./AuthContext";

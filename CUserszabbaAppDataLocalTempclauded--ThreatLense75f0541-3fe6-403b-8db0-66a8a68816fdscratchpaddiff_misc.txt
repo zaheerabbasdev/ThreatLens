@@ -1,0 +1,808 @@
+diff --git a/backend/src/app.ts b/backend/src/app.ts
+index 9b0758b..aaf20bb 100644
+--- a/backend/src/app.ts
++++ b/backend/src/app.ts
+@@ -63,6 +63,27 @@ import { seedThreatActors } from "./repositories/threatActor.seed.js";
+ import { createGraphRouter } from "./threatGraph/graph.routes.js";
+ import { createGraphController } from "./threatGraph/graph.controller.js";
+ import { GraphService } from "./threatGraph/graph.service.js";
++import { InMemoryRecommendationRepository } from "./repositories/recommendation.repository.js";
++import type { RecommendationRepository } from "./repositories/recommendation.repository.js";
++import { InMemoryAIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
++import type { AIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
++import { createAIRouter } from "./ai/ai.routes.js";
++import { createAIController } from "./ai/ai.controller.js";
++import { AIService } from "./ai/ai.service.js";
++import type { AIProvider } from "./ai/aiProvider.js";
++import type { ThreatIntelProvider } from "./threatIntel/threatIntelProvider.js";
++import { InMemorySecurityEventRepository } from "./repositories/securityEvent.repository.js";
++import type { SecurityEventRepository } from "./repositories/securityEvent.repository.js";
++import { createAnomalyDetectionRouter } from "./anomalyDetection/anomalyDetection.routes.js";
++import { createAnomalyDetectionController } from "./anomalyDetection/anomalyDetection.controller.js";
++import { AnomalyDetectionService } from "./anomalyDetection/anomalyDetection.service.js";
++import type { AnomalyDetectionProvider } from "./anomalyDetection/anomalyProvider.js";
++import { InMemoryResponseActionRepository } from "./repositories/responseAction.repository.js";
++import type { ResponseActionRepository } from "./repositories/responseAction.repository.js";
++import { createResponseWorkflowRouter } from "./responseWorkflow/responseWorkflow.routes.js";
++import { createResponseWorkflowController } from "./responseWorkflow/responseWorkflow.controller.js";
++import { ResponseWorkflowService } from "./responseWorkflow/responseWorkflow.service.js";
++import { SimulatedActionExecutor } from "./responseWorkflow/actionExecutor.js";
+ import { logger } from "./utils/logger.js";
+ 
+ export interface AppDependencies {
+@@ -76,6 +97,16 @@ export interface AppDependencies {
+   mitreRepository: MitreRepository;
+   reportRepository: ReportRepository;
+   threatActorRepository: ThreatActorRepository;
++  recommendationRepository: RecommendationRepository;
++  aiAnalysisRepository: AIAnalysisRepository;
++  /** null when OPENAI_API_KEY isn't configured — AIService handles that explicitly rather than silently falling back to fake content (spec §52; see ai/aiProvider.ts). */
++  aiProvider: AIProvider | null;
++  /** Empty array when no provider API keys are configured — IOCService.enrichIndicator then fails with a clean 503 (spec §40; see threatIntel/threatIntelProvider.ts). Deliberately a list, not a single slot — spec §40: "do not tightly couple the application to one provider." */
++  threatIntelProviders: ThreatIntelProvider[];
++  securityEventRepository: SecurityEventRepository;
++  /** null when ML_SERVICE_URL isn't configured — AnomalyDetectionService.analyze then fails with a clean 503 (spec §42; see anomalyDetection/anomalyProvider.ts). */
++  anomalyDetectionProvider: AnomalyDetectionProvider | null;
++  responseActionRepository: ResponseActionRepository;
+ }
+ 
+ /**
+@@ -111,6 +142,13 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
+   const mitreRepository = deps.mitreRepository ?? seedMitreRepository();
+   const reportRepository = deps.reportRepository ?? new InMemoryReportRepository();
+   const threatActorRepository = deps.threatActorRepository ?? seedThreatActorRepository();
++  const recommendationRepository = deps.recommendationRepository ?? new InMemoryRecommendationRepository();
++  const aiAnalysisRepository = deps.aiAnalysisRepository ?? new InMemoryAIAnalysisRepository();
++  const aiProvider = deps.aiProvider ?? null;
++  const threatIntelProviders = deps.threatIntelProviders ?? [];
++  const securityEventRepository = deps.securityEventRepository ?? new InMemorySecurityEventRepository();
++  const anomalyDetectionProvider = deps.anomalyDetectionProvider ?? null;
++  const responseActionRepository = deps.responseActionRepository ?? new InMemoryResponseActionRepository();
+ 
+   // Constructed first — every other service below records through it.
+   const auditService = new AuditService(auditLogRepository);
+@@ -145,7 +183,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
+   const organizationController = createOrganizationController(organizationService);
+   const organizationRouter = createOrganizationRouter(organizationController);
+ 
+-  const iocService = new IOCService(indicatorRepository, userRepository, auditService);
++  const iocService = new IOCService(indicatorRepository, userRepository, auditService, threatIntelProviders);
+   const iocController = createIOCController(iocService);
+   const iocRouter = createIOCRouter(iocController);
+ 
+@@ -167,10 +205,48 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
+   const reportController = createReportController(reportService);
+   const reportRouter = createReportRouter(reportController);
+ 
+-  const graphService = new GraphService(incidentRepository, indicatorRepository, userRepository, mitreRepository, threatActorRepository);
++  const graphService = new GraphService(
++    incidentRepository,
++    indicatorRepository,
++    userRepository,
++    mitreRepository,
++    threatActorRepository,
++    securityEventRepository,
++  );
+   const graphController = createGraphController(graphService);
+   const graphRouter = createGraphRouter(graphController);
+ 
++  const aiService = new AIService(
++    aiProvider,
++    incidentRepository,
++    recommendationRepository,
++    aiAnalysisRepository,
++    userRepository,
++    auditService,
++  );
++  const aiController = createAIController(aiService);
++  const aiRouter = createAIRouter(aiController);
++
++  const anomalyDetectionService = new AnomalyDetectionService(
++    securityEventRepository,
++    userRepository,
++    auditService,
++    anomalyDetectionProvider,
++  );
++  const anomalyDetectionController = createAnomalyDetectionController(anomalyDetectionService);
++  const anomalyDetectionRouter = createAnomalyDetectionRouter(anomalyDetectionController);
++
++  const responseWorkflowService = new ResponseWorkflowService(
++    responseActionRepository,
++    recommendationRepository,
++    incidentRepository,
++    userRepository,
++    auditService,
++    new SimulatedActionExecutor(),
++  );
++  const responseWorkflowController = createResponseWorkflowController(responseWorkflowService);
++  const responseWorkflowRouter = createResponseWorkflowRouter(responseWorkflowController);
++
+   const apiV1Router = createApiV1Router({
+     authRouter,
+     incidentsRouter,
+@@ -179,10 +255,13 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
+     usersRouter,
+     organizationRouter,
+     iocRouter,
++    aiRouter,
+     auditRouter,
+     mitreRouter,
+     reportRouter,
+     graphRouter,
++    anomalyDetectionRouter,
++    responseWorkflowRouter,
+   });
+ 
+   const app = express();
+diff --git a/backend/src/auth/permissions.ts b/backend/src/auth/permissions.ts
+index 5ebc7f6..afb9301 100644
+--- a/backend/src/auth/permissions.ts
++++ b/backend/src/auth/permissions.ts
+@@ -15,7 +15,10 @@ export type Permission =
+   | "alerts:write"
+   | "ioc:submit"
+   | "ioc:read"
++  | "ioc:enrich"
+   | "threat_graph:read"
++  | "anomaly:read"
++  | "anomaly:detect"
+   | "investigations:read"
+   | "investigations:write"
+   | "reports:read"
+@@ -25,7 +28,9 @@ export type Permission =
+   | "settings:read"
+   | "settings:manage"
+   | "audit:read"
+-  | "recommendations:approve";
++  | "recommendations:approve"
++  | "response:request"
++  | "response:execute";
+ 
+ const ALL_PERMISSIONS: Permission[] = [
+   "incidents:read",
+@@ -35,7 +40,10 @@ const ALL_PERMISSIONS: Permission[] = [
+   "alerts:write",
+   "ioc:submit",
+   "ioc:read",
++  "ioc:enrich",
+   "threat_graph:read",
++  "anomaly:read",
++  "anomaly:detect",
+   "investigations:read",
+   "investigations:write",
+   "reports:read",
+@@ -46,6 +54,8 @@ const ALL_PERMISSIONS: Permission[] = [
+   "settings:manage",
+   "audit:read",
+   "recommendations:approve",
++  "response:request",
++  "response:execute",
+ ];
+ 
+ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+@@ -59,19 +69,28 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+     "alerts:write",
+     "ioc:submit",
+     "ioc:read",
++    "ioc:enrich",
+     "threat_graph:read",
++    "anomaly:read",
++    "anomaly:detect",
+     "investigations:read",
+     "investigations:write",
+     "reports:read",
+     "reports:generate",
+     "settings:read",
+     "audit:read",
++    // Executing/rejecting response actions and applying an approved
++    // recommendation stay admin-only (spec: critical actions require human
++    // approval by an appropriately privileged role) — same tier as
++    // recommendations:approve, deliberately excluded here.
++    "response:request",
+   ],
+   viewer: [
+     "incidents:read",
+     "alerts:read",
+     "ioc:read",
+     "threat_graph:read",
++    "anomaly:read",
+     "investigations:read",
+     "reports:read",
+     "settings:read",
+diff --git a/backend/src/config/env.ts b/backend/src/config/env.ts
+index 187f5ef..47d27e3 100644
+--- a/backend/src/config/env.ts
++++ b/backend/src/config/env.ts
+@@ -33,6 +33,47 @@ const envSchema = z.object({
+     })
+     .optional()
+     .transform((v) => (v === "" ? undefined : v)),
++
++  // Optional: when unset, AI endpoints fail with a clear "not configured"
++  // error rather than silently returning canned/fake content — unlike the
++  // database, a "fallback" AI provider would mean fabricated analysis,
++  // which is exactly what spec §52 forbids. See ai/aiProvider.ts.
++  OPENAI_API_KEY: z
++    .string()
++    .trim()
++    .optional()
++    .transform((v) => (v === "" ? undefined : v)),
++  OPENAI_MODEL: z.string().trim().default("gpt-4o-mini"),
++  // Cost control (spec §60) — a hard ceiling independent of the per-route
++  // rate limiter, since that limits *requests*, not spend if request sizes
++  // vary. Per organization, per rolling 24h window.
++  AI_DAILY_REQUEST_LIMIT_PER_ORG: z.coerce.number().int().positive().default(200),
++
++  // Optional: when unset, IOC enrichment has zero providers configured and
++  // POST /ioc/:id/enrich fails with a clear "not configured" 503 — same
++  // "never fabricate, just say so" posture as OPENAI_API_KEY above (spec
++  // §40). See threatIntel/virusTotalProvider.ts.
++  VIRUSTOTAL_API_KEY: z
++    .string()
++    .trim()
++    .optional()
++    .transform((v) => (v === "" ? undefined : v)),
++  // Skip re-querying a provider for the same indicator within this window —
++  // avoids burning API quota on repeated clicks, and gives "stale data"
++  // (spec §40) an explicit, tunable meaning instead of an implicit one.
++  IOC_ENRICHMENT_STALE_AFTER_HOURS: z.coerce.number().int().positive().default(24),
++
++  // Optional: when unset, anomaly detection has no provider configured and
++  // POST /security-events/analyze/:userId fails with a clear "not
++  // configured" 503 — same posture as OPENAI_API_KEY/VIRUSTOTAL_API_KEY
++  // above (spec §42). Points at the self-hosted Python FastAPI service in
++  // ml-service/, not a third-party API — see backend/README.md's Phase 8
++  // section.
++  ML_SERVICE_URL: z
++    .string()
++    .trim()
++    .optional()
++    .transform((v) => (v === "" ? undefined : v)),
+ });
+ 
+ export type Env = z.infer<typeof envSchema>;
+diff --git a/backend/src/middleware/rateLimit.ts b/backend/src/middleware/rateLimit.ts
+index bf52bb6..fdd4369 100644
+--- a/backend/src/middleware/rateLimit.ts
++++ b/backend/src/middleware/rateLimit.ts
+@@ -43,3 +43,18 @@ export function createAuthRateLimit(): RequestHandler {
+ export function createSensitiveActionRateLimit(): RequestHandler {
+   return rateLimit({ ...shared, windowMs: 60 * 60_000, limit: 5 });
+ }
++
++/** AI requests — STRICT (spec §23/§59: expensive, abusable, never unlimited). This limits request *frequency*; aiCostTracker's daily-per-org cap limits *spend* independently — see its header comment for why both are needed. */
++export function createAIRateLimit(): RequestHandler {
++  return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
++}
++
++/** IOC enrichment — STRICT, same reasoning as AI: each call burns real quota against an external provider (spec §40). */
++export function createEnrichRateLimit(): RequestHandler {
++  return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
++}
++
++/** Anomaly detection analysis — STRICT, same reasoning as AI/enrichment: each call is a real request to the ML service, not free (spec §23/§42). */
++export function createAnomalyRateLimit(): RequestHandler {
++  return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
++}
+diff --git a/backend/src/repositories/aiAnalysis.repository.ts b/backend/src/repositories/aiAnalysis.repository.ts
+new file mode 100644
+index 0000000..210fcc9
+--- /dev/null
++++ b/backend/src/repositories/aiAnalysis.repository.ts
+@@ -0,0 +1,29 @@
++import type { AIAnalysis } from "../types/ai.js";
++
++/**
++ * One analysis per incident, cached rather than regenerated on every read
++ * (spec §60 cost control — re-analyzing on every page view would be a
++ * silent way for "an accidental loop" to run up real API spend). `save`
++ * overwrites any existing analysis for that incident — regenerating is an
++ * explicit action (see ai.service.ts), not something that happens by
++ * itself.
++ */
++export interface AIAnalysisRepository {
++  getByIncident(organizationId: string, incidentId: string): Promise<AIAnalysis | null>;
++  save(analysis: AIAnalysis): Promise<AIAnalysis>;
++}
++
++export class InMemoryAIAnalysisRepository implements AIAnalysisRepository {
++  private readonly byIncidentId = new Map<string, AIAnalysis>();
++
++  async getByIncident(organizationId: string, incidentId: string): Promise<AIAnalysis | null> {
++    const analysis = this.byIncidentId.get(incidentId);
++    if (!analysis || analysis.organizationId !== organizationId) return null;
++    return { ...analysis };
++  }
++
++  async save(analysis: AIAnalysis): Promise<AIAnalysis> {
++    this.byIncidentId.set(analysis.incidentId, analysis);
++    return { ...analysis };
++  }
++}
+diff --git a/backend/src/repositories/indicator.repository.mongo.ts b/backend/src/repositories/indicator.repository.mongo.ts
+index f56f629..492703e 100644
+--- a/backend/src/repositories/indicator.repository.mongo.ts
++++ b/backend/src/repositories/indicator.repository.mongo.ts
+@@ -101,6 +101,11 @@ export class MongoIndicatorRepository implements IndicatorRepository {
+     return toDomain(doc.toObject());
+   }
+ 
++  async update(organizationId: string, id: string, patch: Partial<Indicator>): Promise<Indicator | null> {
++    const doc = await IndicatorModel.findOneAndUpdate({ _id: id, organizationId }, patch, { new: true }).lean<IndicatorDoc>();
++    return doc ? toDomain(doc) : null;
++  }
++
+   /** Seed helper — mirrors InMemoryIndicatorRepository.seed's role; not part of the public interface. Upserts so re-running the seed script is idempotent. */
+   async seed(indicator: Indicator): Promise<void> {
+     await IndicatorModel.findByIdAndUpdate(
+diff --git a/backend/src/repositories/indicator.repository.ts b/backend/src/repositories/indicator.repository.ts
+index f5c90e3..96dbacd 100644
+--- a/backend/src/repositories/indicator.repository.ts
++++ b/backend/src/repositories/indicator.repository.ts
+@@ -14,6 +14,7 @@ export interface IndicatorRepository {
+   list(organizationId: string, params: IndicatorListParams): Promise<PaginatedResult<Indicator>>;
+   getById(organizationId: string, id: string): Promise<Indicator | null>;
+   create(indicator: Indicator): Promise<Indicator>;
++  update(organizationId: string, id: string, patch: Partial<Indicator>): Promise<Indicator | null>;
+ }
+ 
+ export class InMemoryIndicatorRepository implements IndicatorRepository {
+@@ -49,6 +50,14 @@ export class InMemoryIndicatorRepository implements IndicatorRepository {
+     return { ...indicator };
+   }
+ 
++  async update(organizationId: string, id: string, patch: Partial<Indicator>): Promise<Indicator | null> {
++    const existing = this.indicatorsById.get(id);
++    if (!existing || existing.organizationId !== organizationId) return null;
++    const updated = { ...existing, ...patch, id: existing.id, organizationId: existing.organizationId } as Indicator;
++    this.indicatorsById.set(id, updated);
++    return { ...updated };
++  }
++
+   /** Test/seed helper only — never exposed through the interface real callers depend on. */
+   seed(indicator: Indicator): void {
+     this.indicatorsById.set(indicator.id, indicator);
+diff --git a/backend/src/repositories/recommendation.repository.ts b/backend/src/repositories/recommendation.repository.ts
+new file mode 100644
+index 0000000..ccc8363
+--- /dev/null
++++ b/backend/src/repositories/recommendation.repository.ts
+@@ -0,0 +1,67 @@
++import type { Recommendation, RecommendationStatus } from "../types/ai.js";
++
++/** Same tenant-isolation contract as IncidentRepository — see its comment. */
++export interface RecommendationRepository {
++  create(recommendation: Recommendation): Promise<Recommendation>;
++  listByIncident(organizationId: string, incidentId: string): Promise<Recommendation[]>;
++  getById(organizationId: string, id: string): Promise<Recommendation | null>;
++  review(
++    organizationId: string,
++    id: string,
++    status: Exclude<RecommendationStatus, "pending" | "applied">,
++    reviewerId: string,
++  ): Promise<Recommendation | null>;
++  /**
++   * The one transition `review()` deliberately can't make (its status
++   * param excludes "applied") — this is Phase 10's response-workflow
++   * layer converting an already-approved recommendation into a real,
++   * tracked ResponseAction (responseWorkflow/responseWorkflow.service.ts).
++   * Returns null if the recommendation doesn't exist, belongs to another
++   * org, or isn't currently "approved" — the caller (ResponseWorkflow
++   * Service) turns that into the right error without this repository
++   * needing to know what a "response action" is.
++   */
++  markApplied(organizationId: string, id: string, appliedBy: string): Promise<Recommendation | null>;
++}
++
++export class InMemoryRecommendationRepository implements RecommendationRepository {
++  private readonly recommendationsById = new Map<string, Recommendation>();
++
++  async create(recommendation: Recommendation): Promise<Recommendation> {
++    this.recommendationsById.set(recommendation.id, recommendation);
++    return { ...recommendation };
++  }
++
++  async listByIncident(organizationId: string, incidentId: string): Promise<Recommendation[]> {
++    return [...this.recommendationsById.values()].filter(
++      (r) => r.organizationId === organizationId && r.incidentId === incidentId,
++    );
++  }
++
++  async getById(organizationId: string, id: string): Promise<Recommendation | null> {
++    const rec = this.recommendationsById.get(id);
++    if (!rec || rec.organizationId !== organizationId) return null;
++    return { ...rec };
++  }
++
++  async review(
++    organizationId: string,
++    id: string,
++    status: Exclude<RecommendationStatus, "pending" | "applied">,
++    reviewerId: string,
++  ): Promise<Recommendation | null> {
++    const existing = this.recommendationsById.get(id);
++    if (!existing || existing.organizationId !== organizationId) return null;
++    const updated: Recommendation = { ...existing, status, reviewedBy: reviewerId, reviewedAt: new Date().toISOString() };
++    this.recommendationsById.set(id, updated);
++    return { ...updated };
++  }
++
++  async markApplied(organizationId: string, id: string, appliedBy: string): Promise<Recommendation | null> {
++    const existing = this.recommendationsById.get(id);
++    if (!existing || existing.organizationId !== organizationId || existing.status !== "approved") return null;
++    const updated: Recommendation = { ...existing, status: "applied", reviewedBy: appliedBy, reviewedAt: new Date().toISOString() };
++    this.recommendationsById.set(id, updated);
++    return { ...updated };
++  }
++}
+diff --git a/backend/src/repositories/responseAction.repository.ts b/backend/src/repositories/responseAction.repository.ts
+new file mode 100644
+index 0000000..c227f9a
+--- /dev/null
++++ b/backend/src/repositories/responseAction.repository.ts
+@@ -0,0 +1,38 @@
++import type { ResponseAction } from "../types/responseAction.js";
++
++/** Same tenant-isolation contract as every other repository (spec §19/§20). */
++export interface ResponseActionRepository {
++  create(action: ResponseAction): Promise<ResponseAction>;
++  listByIncident(organizationId: string, incidentId: string): Promise<ResponseAction[]>;
++  getById(organizationId: string, id: string): Promise<ResponseAction | null>;
++  update(organizationId: string, id: string, patch: Partial<ResponseAction>): Promise<ResponseAction | null>;
++}
++
++export class InMemoryResponseActionRepository implements ResponseActionRepository {
++  private readonly actionsById = new Map<string, ResponseAction>();
++
++  async create(action: ResponseAction): Promise<ResponseAction> {
++    this.actionsById.set(action.id, action);
++    return { ...action };
++  }
++
++  async listByIncident(organizationId: string, incidentId: string): Promise<ResponseAction[]> {
++    return [...this.actionsById.values()]
++      .filter((a) => a.organizationId === organizationId && a.incidentId === incidentId)
++      .sort((a, b) => new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime());
++  }
++
++  async getById(organizationId: string, id: string): Promise<ResponseAction | null> {
++    const action = this.actionsById.get(id);
++    if (!action || action.organizationId !== organizationId) return null;
++    return { ...action };
++  }
++
++  async update(organizationId: string, id: string, patch: Partial<ResponseAction>): Promise<ResponseAction | null> {
++    const existing = this.actionsById.get(id);
++    if (!existing || existing.organizationId !== organizationId) return null;
++    const updated: ResponseAction = { ...existing, ...patch, id: existing.id, organizationId: existing.organizationId };
++    this.actionsById.set(id, updated);
++    return { ...updated };
++  }
++}
+diff --git a/backend/src/repositories/securityEvent.repository.mongo.ts b/backend/src/repositories/securityEvent.repository.mongo.ts
+new file mode 100644
+index 0000000..aa3f8e9
+--- /dev/null
++++ b/backend/src/repositories/securityEvent.repository.mongo.ts
+@@ -0,0 +1,53 @@
++import { SecurityEventModel } from "../database/models/securityEvent.model.js";
++import type { SecurityEventDoc } from "../database/models/securityEvent.model.js";
++import type { SecurityEventRepository } from "./securityEvent.repository.js";
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++/** See user.repository.mongo.ts's header comment on verification status — same caveat applies here (never run against a real MongoDB in this environment). */
++
++function toDomain(doc: SecurityEventDoc): SecurityEvent {
++  return {
++    id: doc._id,
++    organizationId: doc.organizationId,
++    userId: doc.userId,
++    type: doc.type,
++    description: doc.description,
++    severity: doc.severity,
++    sourceIp: doc.sourceIp,
++    isNewLocation: doc.isNewLocation,
++    authFailed: doc.authFailed,
++    isDownload: doc.isDownload,
++    endpoint: doc.endpoint,
++    timestamp: doc.timestamp.toISOString(),
++  };
++}
++
++export class MongoSecurityEventRepository implements SecurityEventRepository {
++  async create(event: SecurityEvent): Promise<SecurityEvent> {
++    const doc = await SecurityEventModel.create({ ...event, _id: event.id });
++    return toDomain(doc.toObject());
++  }
++
++  async list(organizationId: string, page: number, pageSize: number): Promise<{ items: SecurityEvent[]; total: number }> {
++    const filter = { organizationId };
++    const [docs, total] = await Promise.all([
++      SecurityEventModel.find(filter)
++        .sort({ timestamp: -1 })
++        .skip((page - 1) * pageSize)
++        .limit(pageSize)
++        .lean<SecurityEventDoc[]>(),
++      SecurityEventModel.countDocuments(filter),
++    ]);
++    return { items: docs.map(toDomain), total };
++  }
++
++  async listForUser(organizationId: string, userId: string): Promise<SecurityEvent[]> {
++    const docs = await SecurityEventModel.find({ organizationId, userId }).sort({ timestamp: 1 }).lean<SecurityEventDoc[]>();
++    return docs.map(toDomain);
++  }
++
++  /** Seed helper — mirrors the other repositories' .seed() role; not part of the public interface. Upserts so re-running the seed script is idempotent. */
++  async seed(event: SecurityEvent): Promise<void> {
++    await SecurityEventModel.findByIdAndUpdate(event.id, { _id: event.id, ...event }, { upsert: true, setDefaultsOnInsert: true });
++  }
++}
+diff --git a/backend/src/repositories/securityEvent.repository.ts b/backend/src/repositories/securityEvent.repository.ts
+new file mode 100644
+index 0000000..540b902
+--- /dev/null
++++ b/backend/src/repositories/securityEvent.repository.ts
+@@ -0,0 +1,44 @@
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++/**
++ * Same tenant-isolation contract as every other repository (spec §19/§20):
++ * every method takes `organizationId` first. `listForUser` is the one this
++ * module actually depends on — it's the raw material for feature extraction
++ * (anomalyDetection/featureExtraction.ts computes a fixed-size feature
++ * vector from whatever this returns).
++ */
++export interface SecurityEventRepository {
++  create(event: SecurityEvent): Promise<SecurityEvent>;
++  list(organizationId: string, page: number, pageSize: number): Promise<{ items: SecurityEvent[]; total: number }>;
++  /** All events for one user, oldest first — featureExtraction.ts splits this into "baseline" (before the window) and "window" itself. */
++  listForUser(organizationId: string, userId: string): Promise<SecurityEvent[]>;
++}
++
++export class InMemorySecurityEventRepository implements SecurityEventRepository {
++  private readonly eventsById = new Map<string, SecurityEvent>();
++
++  async create(event: SecurityEvent): Promise<SecurityEvent> {
++    this.eventsById.set(event.id, event);
++    return { ...event };
++  }
++
++  async list(organizationId: string, page: number, pageSize: number): Promise<{ items: SecurityEvent[]; total: number }> {
++    const items = [...this.eventsById.values()]
++      .filter((e) => e.organizationId === organizationId)
++      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
++    const start = (page - 1) * pageSize;
++    return { items: items.slice(start, start + pageSize).map((e) => ({ ...e })), total: items.length };
++  }
++
++  async listForUser(organizationId: string, userId: string): Promise<SecurityEvent[]> {
++    return [...this.eventsById.values()]
++      .filter((e) => e.organizationId === organizationId && e.userId === userId)
++      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
++      .map((e) => ({ ...e }));
++  }
++
++  /** Test/seed helper only — never exposed through the interface real callers depend on. */
++  seed(event: SecurityEvent): void {
++    this.eventsById.set(event.id, event);
++  }
++}
+diff --git a/backend/src/repositories/securityEvent.seed.ts b/backend/src/repositories/securityEvent.seed.ts
+new file mode 100644
+index 0000000..72534fc
+--- /dev/null
++++ b/backend/src/repositories/securityEvent.seed.ts
+@@ -0,0 +1,90 @@
++import { randomUUID } from "node:crypto";
++import type { SecurityEvent } from "../types/securityEvent.js";
++
++interface SeedableSecurityEventRepository {
++  seed(event: SecurityEvent): void | Promise<void>;
++}
++
++/**
++ * Demo behavioral history for user_3 (Diego Alvarez): a routine baseline —
++ * logins around 09:00 UTC on familiar endpoints — plus a burst of recent,
++ * genuinely unusual activity (an off-hours login from a new location, two
++ * failed authentications, and an unfamiliar endpoint). Lets
++ * `POST /security-events/analyze` produce a real, non-trivial anomaly
++ * result out of the box instead of an empty-baseline zero.
++ */
++export async function seedDemoSecurityEvents(repository: SeedableSecurityEventRepository): Promise<void> {
++  const organizationId = "org_northwind";
++  const userId = "user_3";
++
++  const events: SecurityEvent[] = [];
++
++  // Baseline: 10 routine morning logins over the prior 10 days, each
++  // touching the same two familiar endpoints.
++  for (let day = 10; day >= 3; day--) {
++    events.push({
++      id: randomUUID(),
++      organizationId,
++      userId,
++      type: "authentication",
++      description: "Routine login",
++      severity: "info",
++      sourceIp: "203.0.113.10",
++      endpoint: "/incidents",
++      timestamp: new Date(`2026-08-${String(20 - day).padStart(2, "0")}T09:0${day % 6}:00Z`).toISOString(),
++    });
++  }
++
++  // Recent window: an off-hours login from a new location, two failed
++  // authentications, and an unfamiliar admin endpoint — the kind of
++  // cluster an analyst would actually want flagged.
++  events.push(
++    {
++      id: randomUUID(),
++      organizationId,
++      userId,
++      type: "authentication",
++      description: "Login from an unrecognized location",
++      severity: "medium",
++      sourceIp: "185.220.101.47",
++      isNewLocation: true,
++      endpoint: "/incidents",
++      timestamp: "2026-08-19T22:40:00Z",
++    },
++    {
++      id: randomUUID(),
++      organizationId,
++      userId,
++      type: "authentication",
++      description: "Failed login attempt",
++      severity: "medium",
++      sourceIp: "185.220.101.47",
++      authFailed: true,
++      timestamp: "2026-08-19T22:41:00Z",
++    },
++    {
++      id: randomUUID(),
++      organizationId,
++      userId,
++      type: "authentication",
++      description: "Failed login attempt",
++      severity: "medium",
++      sourceIp: "185.220.101.47",
++      authFailed: true,
++      timestamp: "2026-08-19T22:42:00Z",
++    },
++    {
++      id: randomUUID(),
++      organizationId,
++      userId,
++      type: "file_access",
++      description: "Accessed an administrative export endpoint",
++      severity: "high",
++      endpoint: "/admin/export",
++      isDownload: true,
++      timestamp: "2026-08-19T22:45:00Z",
++    },
++  );
++
++  for (const event of events) await repository.seed(event);
++}
+diff --git a/backend/src/server.ts b/backend/src/server.ts
+index 8442bdd..8016792 100644
+--- a/backend/src/server.ts
++++ b/backend/src/server.ts
+@@ -31,6 +31,60 @@ import { InMemoryThreatActorRepository } from "./repositories/threatActor.reposi
+ import { MongoThreatActorRepository } from "./repositories/threatActor.repository.mongo.js";
+ import { seedThreatActors } from "./repositories/threatActor.seed.js";
+ import { InMemoryAuditLogRepository } from "./repositories/auditLog.repository.js";
++import { InMemoryRecommendationRepository } from "./repositories/recommendation.repository.js";
++import { InMemoryAIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
++import { OpenAIProvider } from "./ai/openaiProvider.js";
++import OpenAI from "openai";
++import type { AIProvider } from "./ai/aiProvider.js";
++import { VirusTotalProvider, buildFetchHttpClient } from "./threatIntel/virusTotalProvider.js";
++import type { ThreatIntelProvider } from "./threatIntel/threatIntelProvider.js";
++import { InMemorySecurityEventRepository } from "./repositories/securityEvent.repository.js";
++import { MongoSecurityEventRepository } from "./repositories/securityEvent.repository.mongo.js";
++import { seedDemoSecurityEvents } from "./repositories/securityEvent.seed.js";
++import { MlServiceProvider, buildFetchHttpClient as buildMlHttpClient } from "./anomalyDetection/mlServiceProvider.js";
++import type { AnomalyDetectionProvider } from "./anomalyDetection/anomalyProvider.js";
++import { InMemoryResponseActionRepository } from "./repositories/responseAction.repository.js";
++
++/**
++ * null when OPENAI_API_KEY isn't set — AIService treats that as "AI
++ * features aren't configured" and returns a clean 503, never silently
++ * falling back to fake content (spec §52; see ai/aiProvider.ts's header
++ * comment for why that's different from the MongoDB fallback above).
++ */
++function buildAIProvider(): AIProvider | null {
++  if (!env.OPENAI_API_KEY) {
++    logger.info("OPENAI_API_KEY not set — AI features are disabled");
++    return null;
++  }
++  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
++  return new OpenAIProvider(client, env.OPENAI_MODEL);
++}
++
++/**
++ * Empty when no provider API keys are set — IOCService.enrichIndicator then
++ * fails with a clean 503, same "never fabricate, just say so" posture as
++ * buildAIProvider above (spec §40). A list because spec §40 explicitly says
++ * not to tightly couple to one provider — adding a second one later is just
++ * another push onto this array, nothing else in the app changes.
++ */
++function buildThreatIntelProviders(): ThreatIntelProvider[] {
++  const providers: ThreatIntelProvider[] = [];
++  if (env.VIRUSTOTAL_API_KEY) {
++    providers.push(new VirusTotalProvider(buildFetchHttpClient(), env.VIRUSTOTAL_API_KEY));
++  } else {
++    logger.info("VIRUSTOTAL_API_KEY not set — IOC enrichment has no providers configured");
++  }
++  return providers;
++}
++
++/** null when ML_SERVICE_URL isn't set — AnomalyDetectionService.analyze then fails with a clean 503 (spec §42), same posture as buildAIProvider/buildThreatIntelProviders above. */
++function buildAnomalyDetectionProvider(): AnomalyDetectionProvider | null {
++  if (!env.ML_SERVICE_URL) {
++    logger.info("ML_SERVICE_URL not set — anomaly detection is disabled");
++    return null;
++  }
++  return new MlServiceProvider(buildMlHttpClient(), env.ML_SERVICE_URL);
++}
+ 
+ /**
+  * Builds every repository, seeded with the same demo data either way — the
+@@ -66,6 +120,16 @@ async function buildRepositories(): Promise<AppDependencies> {
+     // Audit logs are never seeded — an empty trail at startup is correct
+     // either way, in-memory or Mongo.
+     const auditLogRepository = new InMemoryAuditLogRepository();
++    // AI recommendations/analyses aren't Mongo-backed yet (Phase 6 is new;
++    // this follows Phase 3's original scope, not Phase 5's) — same
++    // in-memory tradeoff every other collection had before its own turn.
++    const recommendationRepository = new InMemoryRecommendationRepository();
++    const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
++    const securityEventRepository = new MongoSecurityEventRepository();
++    await seedDemoSecurityEvents(securityEventRepository);
++    // Response actions aren't Mongo-backed yet either — same tradeoff as
++    // recommendations/aiAnalysis above.
++    const responseActionRepository = new InMemoryResponseActionRepository();
+ 
+     return {
+       userRepository,
+@@ -78,6 +142,13 @@ async function buildRepositories(): Promise<AppDependencies> {
+       mitreRepository,
+       threatActorRepository,
+       auditLogRepository,
++      recommendationRepository,
++      aiAnalysisRepository,
++      aiProvider: buildAIProvider(),
++      threatIntelProviders: buildThreatIntelProviders(),
++      securityEventRepository,
++      anomalyDetectionProvider: buildAnomalyDetectionProvider(),
++      responseActionRepository,
+     };
+   }
+ 
+@@ -102,6 +173,11 @@ async function buildRepositories(): Promise<AppDependencies> {
+   const threatActorRepository = new InMemoryThreatActorRepository();
+   seedThreatActors(threatActorRepository);
+   const auditLogRepository = new InMemoryAuditLogRepository();
++  const recommendationRepository = new InMemoryRecommendationRepository();
++  const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
++  const securityEventRepository = new InMemorySecurityEventRepository();
++  await seedDemoSecurityEvents(securityEventRepository);
++  const responseActionRepository = new InMemoryResponseActionRepository();
+ 
+   return {
+     userRepository,
+@@ -114,6 +190,13 @@ async function buildRepositories(): Promise<AppDependencies> {
+     mitreRepository,
+     threatActorRepository,
+     auditLogRepository,
++    recommendationRepository,
++    aiAnalysisRepository,
++    aiProvider: buildAIProvider(),
++    threatIntelProviders: buildThreatIntelProviders(),
++    securityEventRepository,
++    anomalyDetectionProvider: buildAnomalyDetectionProvider(),
++    responseActionRepository,
+   };
+ }
+ 
