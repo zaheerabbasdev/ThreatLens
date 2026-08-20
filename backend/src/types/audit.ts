@@ -28,7 +28,11 @@ export type AuditAction =
   | "RECOMMENDATION_APPROVED"
   | "RECOMMENDATION_REJECTED"
   | "REPORT_EXPORTED"
-  | "SECURITY_SETTING_CHANGED";
+  | "SECURITY_SETTING_CHANGED"
+  | "ANOMALY_DETECTED"
+  | "RESPONSE_ACTION_REQUESTED"
+  | "RESPONSE_ACTION_EXECUTED"
+  | "RESPONSE_ACTION_REJECTED";
 
 export type AuditResult = "success" | "failure";
 export type AuditSeverity = "info" | "low" | "medium" | "high";

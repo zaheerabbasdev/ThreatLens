@@ -71,6 +71,19 @@ import { createAIRouter } from "./ai/ai.routes.js";
 import { createAIController } from "./ai/ai.controller.js";
 import { AIService } from "./ai/ai.service.js";
 import type { AIProvider } from "./ai/aiProvider.js";
+import type { ThreatIntelProvider } from "./threatIntel/threatIntelProvider.js";
+import { InMemorySecurityEventRepository } from "./repositories/securityEvent.repository.js";
+import type { SecurityEventRepository } from "./repositories/securityEvent.repository.js";
+import { createAnomalyDetectionRouter } from "./anomalyDetection/anomalyDetection.routes.js";
+import { createAnomalyDetectionController } from "./anomalyDetection/anomalyDetection.controller.js";
+import { AnomalyDetectionService } from "./anomalyDetection/anomalyDetection.service.js";
+import type { AnomalyDetectionProvider } from "./anomalyDetection/anomalyProvider.js";
+import { InMemoryResponseActionRepository } from "./repositories/responseAction.repository.js";
+import type { ResponseActionRepository } from "./repositories/responseAction.repository.js";
+import { createResponseWorkflowRouter } from "./responseWorkflow/responseWorkflow.routes.js";
+import { createResponseWorkflowController } from "./responseWorkflow/responseWorkflow.controller.js";
+import { ResponseWorkflowService } from "./responseWorkflow/responseWorkflow.service.js";
+import { SimulatedActionExecutor } from "./responseWorkflow/actionExecutor.js";
 import { logger } from "./utils/logger.js";
 
 export interface AppDependencies {
@@ -88,6 +101,12 @@ export interface AppDependencies {
   aiAnalysisRepository: AIAnalysisRepository;
   /** null when OPENAI_API_KEY isn't configured — AIService handles that explicitly rather than silently falling back to fake content (spec §52; see ai/aiProvider.ts). */
   aiProvider: AIProvider | null;
+  /** Empty array when no provider API keys are configured — IOCService.enrichIndicator then fails with a clean 503 (spec §40; see threatIntel/threatIntelProvider.ts). Deliberately a list, not a single slot — spec §40: "do not tightly couple the application to one provider." */
+  threatIntelProviders: ThreatIntelProvider[];
+  securityEventRepository: SecurityEventRepository;
+  /** null when ML_SERVICE_URL isn't configured — AnomalyDetectionService.analyze then fails with a clean 503 (spec §42; see anomalyDetection/anomalyProvider.ts). */
+  anomalyDetectionProvider: AnomalyDetectionProvider | null;
+  responseActionRepository: ResponseActionRepository;
 }
 
 /**
@@ -126,6 +145,10 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const recommendationRepository = deps.recommendationRepository ?? new InMemoryRecommendationRepository();
   const aiAnalysisRepository = deps.aiAnalysisRepository ?? new InMemoryAIAnalysisRepository();
   const aiProvider = deps.aiProvider ?? null;
+  const threatIntelProviders = deps.threatIntelProviders ?? [];
+  const securityEventRepository = deps.securityEventRepository ?? new InMemorySecurityEventRepository();
+  const anomalyDetectionProvider = deps.anomalyDetectionProvider ?? null;
+  const responseActionRepository = deps.responseActionRepository ?? new InMemoryResponseActionRepository();
 
   // Constructed first — every other service below records through it.
   const auditService = new AuditService(auditLogRepository);
@@ -160,7 +183,7 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const organizationController = createOrganizationController(organizationService);
   const organizationRouter = createOrganizationRouter(organizationController);
 
-  const iocService = new IOCService(indicatorRepository, userRepository, auditService);
+  const iocService = new IOCService(indicatorRepository, userRepository, auditService, threatIntelProviders);
   const iocController = createIOCController(iocService);
   const iocRouter = createIOCRouter(iocController);
 
@@ -182,7 +205,14 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const reportController = createReportController(reportService);
   const reportRouter = createReportRouter(reportController);
 
-  const graphService = new GraphService(incidentRepository, indicatorRepository, userRepository, mitreRepository, threatActorRepository);
+  const graphService = new GraphService(
+    incidentRepository,
+    indicatorRepository,
+    userRepository,
+    mitreRepository,
+    threatActorRepository,
+    securityEventRepository,
+  );
   const graphController = createGraphController(graphService);
   const graphRouter = createGraphRouter(graphController);
 
@@ -197,6 +227,26 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
   const aiController = createAIController(aiService);
   const aiRouter = createAIRouter(aiController);
 
+  const anomalyDetectionService = new AnomalyDetectionService(
+    securityEventRepository,
+    userRepository,
+    auditService,
+    anomalyDetectionProvider,
+  );
+  const anomalyDetectionController = createAnomalyDetectionController(anomalyDetectionService);
+  const anomalyDetectionRouter = createAnomalyDetectionRouter(anomalyDetectionController);
+
+  const responseWorkflowService = new ResponseWorkflowService(
+    responseActionRepository,
+    recommendationRepository,
+    incidentRepository,
+    userRepository,
+    auditService,
+    new SimulatedActionExecutor(),
+  );
+  const responseWorkflowController = createResponseWorkflowController(responseWorkflowService);
+  const responseWorkflowRouter = createResponseWorkflowRouter(responseWorkflowController);
+
   const apiV1Router = createApiV1Router({
     authRouter,
     incidentsRouter,
@@ -210,6 +260,8 @@ export function createApp(deps: Partial<AppDependencies> = {}) {
     mitreRouter,
     reportRouter,
     graphRouter,
+    anomalyDetectionRouter,
+    responseWorkflowRouter,
   });
 
   const app = express();

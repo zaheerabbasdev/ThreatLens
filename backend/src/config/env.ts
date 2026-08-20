@@ -48,6 +48,32 @@ const envSchema = z.object({
   // rate limiter, since that limits *requests*, not spend if request sizes
   // vary. Per organization, per rolling 24h window.
   AI_DAILY_REQUEST_LIMIT_PER_ORG: z.coerce.number().int().positive().default(200),
+
+  // Optional: when unset, IOC enrichment has zero providers configured and
+  // POST /ioc/:id/enrich fails with a clear "not configured" 503 — same
+  // "never fabricate, just say so" posture as OPENAI_API_KEY above (spec
+  // §40). See threatIntel/virusTotalProvider.ts.
+  VIRUSTOTAL_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+  // Skip re-querying a provider for the same indicator within this window —
+  // avoids burning API quota on repeated clicks, and gives "stale data"
+  // (spec §40) an explicit, tunable meaning instead of an implicit one.
+  IOC_ENRICHMENT_STALE_AFTER_HOURS: z.coerce.number().int().positive().default(24),
+
+  // Optional: when unset, anomaly detection has no provider configured and
+  // POST /security-events/analyze/:userId fails with a clear "not
+  // configured" 503 — same posture as OPENAI_API_KEY/VIRUSTOTAL_API_KEY
+  // above (spec §42). Points at the self-hosted Python FastAPI service in
+  // ml-service/, not a third-party API — see backend/README.md's Phase 8
+  // section.
+  ML_SERVICE_URL: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
 });
 
 export type Env = z.infer<typeof envSchema>;

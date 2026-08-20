@@ -14,6 +14,7 @@ export interface IndicatorRepository {
   list(organizationId: string, params: IndicatorListParams): Promise<PaginatedResult<Indicator>>;
   getById(organizationId: string, id: string): Promise<Indicator | null>;
   create(indicator: Indicator): Promise<Indicator>;
+  update(organizationId: string, id: string, patch: Partial<Indicator>): Promise<Indicator | null>;
 }
 
 export class InMemoryIndicatorRepository implements IndicatorRepository {
@@ -47,6 +48,14 @@ export class InMemoryIndicatorRepository implements IndicatorRepository {
   async create(indicator: Indicator): Promise<Indicator> {
     this.indicatorsById.set(indicator.id, indicator);
     return { ...indicator };
+  }
+
+  async update(organizationId: string, id: string, patch: Partial<Indicator>): Promise<Indicator | null> {
+    const existing = this.indicatorsById.get(id);
+    if (!existing || existing.organizationId !== organizationId) return null;
+    const updated = { ...existing, ...patch, id: existing.id, organizationId: existing.organizationId } as Indicator;
+    this.indicatorsById.set(id, updated);
+    return { ...updated };
   }
 
   /** Test/seed helper only — never exposed through the interface real callers depend on. */

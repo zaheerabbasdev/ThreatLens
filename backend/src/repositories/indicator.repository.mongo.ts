@@ -101,6 +101,11 @@ export class MongoIndicatorRepository implements IndicatorRepository {
     return toDomain(doc.toObject());
   }
 
+  async update(organizationId: string, id: string, patch: Partial<Indicator>): Promise<Indicator | null> {
+    const doc = await IndicatorModel.findOneAndUpdate({ _id: id, organizationId }, patch, { new: true }).lean<IndicatorDoc>();
+    return doc ? toDomain(doc) : null;
+  }
+
   /** Seed helper — mirrors InMemoryIndicatorRepository.seed's role; not part of the public interface. Upserts so re-running the seed script is idempotent. */
   async seed(indicator: Indicator): Promise<void> {
     await IndicatorModel.findByIdAndUpdate(

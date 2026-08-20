@@ -15,7 +15,10 @@ export type Permission =
   | "alerts:write"
   | "ioc:submit"
   | "ioc:read"
+  | "ioc:enrich"
   | "threat_graph:read"
+  | "anomaly:read"
+  | "anomaly:detect"
   | "investigations:read"
   | "investigations:write"
   | "reports:read"
@@ -25,7 +28,9 @@ export type Permission =
   | "settings:read"
   | "settings:manage"
   | "audit:read"
-  | "recommendations:approve";
+  | "recommendations:approve"
+  | "response:request"
+  | "response:execute";
 
 const ALL_PERMISSIONS: Permission[] = [
   "incidents:read",
@@ -35,7 +40,10 @@ const ALL_PERMISSIONS: Permission[] = [
   "alerts:write",
   "ioc:submit",
   "ioc:read",
+  "ioc:enrich",
   "threat_graph:read",
+  "anomaly:read",
+  "anomaly:detect",
   "investigations:read",
   "investigations:write",
   "reports:read",
@@ -46,6 +54,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "settings:manage",
   "audit:read",
   "recommendations:approve",
+  "response:request",
+  "response:execute",
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
@@ -59,19 +69,28 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "alerts:write",
     "ioc:submit",
     "ioc:read",
+    "ioc:enrich",
     "threat_graph:read",
+    "anomaly:read",
+    "anomaly:detect",
     "investigations:read",
     "investigations:write",
     "reports:read",
     "reports:generate",
     "settings:read",
     "audit:read",
+    // Executing/rejecting response actions and applying an approved
+    // recommendation stay admin-only (spec: critical actions require human
+    // approval by an appropriately privileged role) — same tier as
+    // recommendations:approve, deliberately excluded here.
+    "response:request",
   ],
   viewer: [
     "incidents:read",
     "alerts:read",
     "ioc:read",
     "threat_graph:read",
+    "anomaly:read",
     "investigations:read",
     "reports:read",
     "settings:read",

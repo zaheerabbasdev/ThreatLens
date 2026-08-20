@@ -11,6 +11,17 @@ export interface RecommendationRepository {
     status: Exclude<RecommendationStatus, "pending" | "applied">,
     reviewerId: string,
   ): Promise<Recommendation | null>;
+  /**
+   * The one transition `review()` deliberately can't make (its status
+   * param excludes "applied") — this is Phase 10's response-workflow
+   * layer converting an already-approved recommendation into a real,
+   * tracked ResponseAction (responseWorkflow/responseWorkflow.service.ts).
+   * Returns null if the recommendation doesn't exist, belongs to another
+   * org, or isn't currently "approved" — the caller (ResponseWorkflow
+   * Service) turns that into the right error without this repository
+   * needing to know what a "response action" is.
+   */
+  markApplied(organizationId: string, id: string, appliedBy: string): Promise<Recommendation | null>;
 }
 
 export class InMemoryRecommendationRepository implements RecommendationRepository {
@@ -42,6 +53,14 @@ export class InMemoryRecommendationRepository implements RecommendationRepositor
     const existing = this.recommendationsById.get(id);
     if (!existing || existing.organizationId !== organizationId) return null;
     const updated: Recommendation = { ...existing, status, reviewedBy: reviewerId, reviewedAt: new Date().toISOString() };
+    this.recommendationsById.set(id, updated);
+    return { ...updated };
+  }
+
+  async markApplied(organizationId: string, id: string, appliedBy: string): Promise<Recommendation | null> {
+    const existing = this.recommendationsById.get(id);
+    if (!existing || existing.organizationId !== organizationId || existing.status !== "approved") return null;
+    const updated: Recommendation = { ...existing, status: "applied", reviewedBy: appliedBy, reviewedAt: new Date().toISOString() };
     this.recommendationsById.set(id, updated);
     return { ...updated };
   }

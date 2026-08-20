@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { sendSuccess } from "../utils/apiResponse.js";
 import { UnauthorizedError } from "../errors/AppError.js";
 import type { IOCService } from "./ioc.service.js";
-import { submitSchema, listQuerySchema } from "./ioc.schemas.js";
+import { submitSchema, listQuerySchema, enrichQuerySchema } from "./ioc.schemas.js";
 
 export type IOCController = ReturnType<typeof createIOCController>;
 
@@ -26,6 +26,13 @@ export function createIOCController(service: IOCService) {
     getById: asyncHandler(async (req, res) => {
       if (!req.user) throw new UnauthorizedError();
       const indicator = await service.getById(req.user.organizationId, req.params["id"]!);
+      sendSuccess(res, indicator);
+    }),
+
+    enrich: asyncHandler(async (req, res) => {
+      if (!req.user) throw new UnauthorizedError();
+      const query = enrichQuerySchema.parse(req.query);
+      const indicator = await service.enrichIndicator(req.user.organizationId, req.user.id, req.params["id"]!, query.force);
       sendSuccess(res, indicator);
     }),
   };

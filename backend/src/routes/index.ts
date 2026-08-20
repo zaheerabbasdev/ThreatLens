@@ -19,6 +19,8 @@ export function createApiV1Router(deps: {
   reportRouter: Router;
   graphRouter: Router;
   aiRouter: Router;
+  anomalyDetectionRouter: Router;
+  responseWorkflowRouter: Router;
 }): Router {
   const router = Router();
   router.use("/health", healthRouter);
@@ -34,5 +36,7 @@ export function createApiV1Router(deps: {
   router.use("/reports", deps.reportRouter);
   router.use("/threat-graph", deps.graphRouter);
   router.use("/ai", deps.aiRouter);
+  router.use("/security-events", deps.anomalyDetectionRouter);
+  router.use("/response-actions", deps.responseWorkflowRouter);
   return router;
 }

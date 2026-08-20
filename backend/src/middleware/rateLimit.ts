@@ -48,3 +48,13 @@ export function createSensitiveActionRateLimit(): RequestHandler {
 export function createAIRateLimit(): RequestHandler {
   return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
 }
+
+/** IOC enrichment — STRICT, same reasoning as AI: each call burns real quota against an external provider (spec §40). */
+export function createEnrichRateLimit(): RequestHandler {
+  return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
+}
+
+/** Anomaly detection analysis — STRICT, same reasoning as AI/enrichment: each call is a real request to the ML service, not free (spec §23/§42). */
+export function createAnomalyRateLimit(): RequestHandler {
+  return rateLimit({ ...shared, windowMs: 60_000, limit: 15 });
+}

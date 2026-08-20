@@ -3,8 +3,12 @@ import type { IndicatorRepository } from "../repositories/indicator.repository.j
 import type { UserRepository } from "../repositories/user.repository.js";
 import type { MitreRepository } from "../repositories/mitre.repository.js";
 import type { ThreatActorRepository } from "../repositories/threatActor.repository.js";
+import type { SecurityEventRepository } from "../repositories/securityEvent.repository.js";
 import type { Indicator } from "../types/indicator.js";
 import type { GraphData, GraphEdge, GraphEdgeRelation, GraphNode } from "../types/graph.js";
+import type { CorrelationCandidate } from "./correlation.js";
+import { findCorrelations } from "./correlation.js";
+import { NotFoundError } from "../errors/AppError.js";
 
 const ALL_ROWS = 10_000; // see mitre.service.ts's identical comment on the same in-memory-phase tradeoff
 
@@ -42,6 +46,7 @@ export class GraphService {
     private readonly users: UserRepository,
     private readonly mitre: MitreRepository,
     private readonly threatActors: ThreatActorRepository,
+    private readonly securityEvents: SecurityEventRepository,
   ) {}
 
   async getGraph(organizationId: string): Promise<GraphData> {
@@ -145,6 +150,25 @@ export class GraphService {
     }
 
     return { nodes, edges };
+  }
+
+  /**
+   * Deterministic correlation discovery (spec §41) — surfaces indicators/
+   * security events that share concrete evidence with `indicatorId` but
+   * AREN'T already an explicit edge in `getGraph()`. Never persisted, never
+   * auto-linked: see correlation.ts's header comment on why these stay
+   * "candidates" until an analyst confirms one for real.
+   */
+  async findCorrelationsFor(organizationId: string, indicatorId: string): Promise<CorrelationCandidate[]> {
+    const subject = await this.indicators.getById(organizationId, indicatorId);
+    if (!subject) throw new NotFoundError("The requested indicator was not found.");
+
+    const [{ items: otherIndicators }, { items: events }] = await Promise.all([
+      this.indicators.list(organizationId, { pageSize: ALL_ROWS }),
+      this.securityEvents.list(organizationId, 1, ALL_ROWS),
+    ]);
+
+    return findCorrelations(subject, otherIndicators, events);
   }
 }
 

@@ -36,6 +36,13 @@ import { InMemoryAIAnalysisRepository } from "./repositories/aiAnalysis.reposito
 import { OpenAIProvider } from "./ai/openaiProvider.js";
 import OpenAI from "openai";
 import type { AIProvider } from "./ai/aiProvider.js";
+import { VirusTotalProvider, buildFetchHttpClient } from "./threatIntel/virusTotalProvider.js";
+import type { ThreatIntelProvider } from "./threatIntel/threatIntelProvider.js";
+import { InMemorySecurityEventRepository } from "./repositories/securityEvent.repository.js";
+import { MongoSecurityEventRepository } from "./repositories/securityEvent.repository.mongo.js";
+import { seedDemoSecurityEvents } from "./repositories/securityEvent.seed.js";
+import { MlServiceProvider, buildFetchHttpClient as buildMlHttpClient } from "./anomalyDetection/mlServiceProvider.js";
+import type { AnomalyDetectionProvider } from "./anomalyDetection/anomalyProvider.js";
 
 /**
  * null when OPENAI_API_KEY isn't set — AIService treats that as "AI
@@ -50,6 +57,32 @@ function buildAIProvider(): AIProvider | null {
   }
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   return new OpenAIProvider(client, env.OPENAI_MODEL);
+}
+
+/**
+ * Empty when no provider API keys are set — IOCService.enrichIndicator then
+ * fails with a clean 503, same "never fabricate, just say so" posture as
+ * buildAIProvider above (spec §40). A list because spec §40 explicitly says
+ * not to tightly couple to one provider — adding a second one later is just
+ * another push onto this array, nothing else in the app changes.
+ */
+function buildThreatIntelProviders(): ThreatIntelProvider[] {
+  const providers: ThreatIntelProvider[] = [];
+  if (env.VIRUSTOTAL_API_KEY) {
+    providers.push(new VirusTotalProvider(buildFetchHttpClient(), env.VIRUSTOTAL_API_KEY));
+  } else {
+    logger.info("VIRUSTOTAL_API_KEY not set — IOC enrichment has no providers configured");
+  }
+  return providers;
+}
+
+/** null when ML_SERVICE_URL isn't set — AnomalyDetectionService.analyze then fails with a clean 503 (spec §42), same posture as buildAIProvider/buildThreatIntelProviders above. */
+function buildAnomalyDetectionProvider(): AnomalyDetectionProvider | null {
+  if (!env.ML_SERVICE_URL) {
+    logger.info("ML_SERVICE_URL not set — anomaly detection is disabled");
+    return null;
+  }
+  return new MlServiceProvider(buildMlHttpClient(), env.ML_SERVICE_URL);
 }
 
 /**
@@ -91,6 +124,8 @@ async function buildRepositories(): Promise<AppDependencies> {
     // in-memory tradeoff every other collection had before its own turn.
     const recommendationRepository = new InMemoryRecommendationRepository();
     const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
+    const securityEventRepository = new MongoSecurityEventRepository();
+    await seedDemoSecurityEvents(securityEventRepository);
 
     return {
       userRepository,
@@ -106,6 +141,9 @@ async function buildRepositories(): Promise<AppDependencies> {
       recommendationRepository,
       aiAnalysisRepository,
       aiProvider: buildAIProvider(),
+      threatIntelProviders: buildThreatIntelProviders(),
+      securityEventRepository,
+      anomalyDetectionProvider: buildAnomalyDetectionProvider(),
     };
   }
 
@@ -132,6 +170,8 @@ async function buildRepositories(): Promise<AppDependencies> {
   const auditLogRepository = new InMemoryAuditLogRepository();
   const recommendationRepository = new InMemoryRecommendationRepository();
   const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
+  const securityEventRepository = new InMemorySecurityEventRepository();
+  await seedDemoSecurityEvents(securityEventRepository);
 
   return {
     userRepository,
@@ -147,6 +187,9 @@ async function buildRepositories(): Promise<AppDependencies> {
     recommendationRepository,
     aiAnalysisRepository,
     aiProvider: buildAIProvider(),
+    threatIntelProviders: buildThreatIntelProviders(),
+    securityEventRepository,
+    anomalyDetectionProvider: buildAnomalyDetectionProvider(),
   };
 }
 

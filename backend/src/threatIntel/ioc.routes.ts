@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
+import { createEnrichRateLimit } from "../middleware/rateLimit.js";
 import type { IOCController } from "./ioc.controller.js";
 
 export function createIOCRouter(controller: IOCController): Router {
@@ -10,6 +11,7 @@ export function createIOCRouter(controller: IOCController): Router {
   router.get("/", requirePermission("ioc:read"), controller.list);
   router.post("/", requirePermission("ioc:submit"), controller.submit);
   router.get("/:id", requirePermission("ioc:read"), controller.getById);
+  router.post("/:id/enrich", requirePermission("ioc:enrich"), createEnrichRateLimit(), controller.enrich);
 
   return router;
 }

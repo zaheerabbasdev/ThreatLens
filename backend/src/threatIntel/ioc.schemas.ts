@@ -57,6 +57,17 @@ export const submitSchema = z
   });
 export type SubmitInput = z.infer<typeof submitSchema>;
 
+export const enrichQuerySchema = z.object({
+  // Bypasses the staleness cache (spec §40's "stale data" handling) —
+  // deliberately opt-in, so a normal click never re-burns provider quota
+  // for data fetched moments ago.
+  force: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v === "true"),
+});
+export type EnrichQuery = z.infer<typeof enrichQuerySchema>;
+
 export const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),

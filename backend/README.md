@@ -326,11 +326,227 @@ confirm that last step before relying on this in production.
 out of scope for this increment; the codebase has no vector index or retrieval step yet, only
 direct prompt construction from explicitly-selected context.
 
+## Phase 7 — Threat Intelligence
+
+A `ThreatIntelProvider` abstraction (`src/threatIntel/threatIntelProvider.ts`) sits between
+`IOCService` and any external provider — spec §40 explicitly says "do not tightly couple the
+application to one provider," so `IOCService` takes a **list** of providers, not a single slot;
+adding a second one later is one more push onto that array, nothing else changes.
+`server.ts` builds a real `VirusTotalProvider` when `VIRUSTOTAL_API_KEY` is set and an empty
+list otherwise; `IOCService.enrichIndicator` treats an empty list as "not configured" and
+returns a clean `503`, the same "never fabricate, just say so" posture as Phase 6's AI provider.
+
+**What this covers:**
+
+- **`POST /ioc/:id/enrich`** (`ioc:enrich` permission — every role except viewer) — queries
+  every configured provider for the indicator's live value and folds the results into it
+- **Deterministic aggregation, never AI-derived** (spec §39/§40) — `riskScore`/`severity` are
+  recomputed by a fixed formula (`src/utils/risk.ts`'s `severityFromScore`, identical
+  thresholds to the frontend's) from provider verdicts, never invented or explained-then-kept
+  by a model. Aggregation is conservative: the **worst** score any source has *ever* reported
+  wins, so a provider that once flagged something malicious isn't quietly forgotten because a
+  later lookup came back clean
+- **"Never present external intelligence as absolute truth" (spec §40)** — provider
+  disagreement is never hidden or silently merged away: every individual lookup is appended to
+  `sources[]` (`provider`/`fetchedAt`/`confidence`, spec's exact "source, timestamp,
+  confidence, provider" requirement), so an analyst can see e.g. one provider called something
+  malicious while another called it clean, side by side
+- **API failures handled per-provider, not fatally** (spec §40) — each provider is queried via
+  `Promise.allSettled`; one being down/erroring is logged and skipped, it never fails the whole
+  enrichment or the providers that did respond. If every configured provider fails at runtime,
+  the endpoint still returns `200` with the indicator unchanged — a transient external problem
+  is not the same as "not configured," and neither one ever fabricates a result
+- **Quotas** (spec §40) — a `429` from the provider is raised as a distinct `ThreatIntelQuotaError`
+  rather than a generic failure, so it's identifiable in logs; `createEnrichRateLimit` (15
+  requests/minute) also caps request *frequency* independently, same reasoning as Phase 6's AI
+  rate limiter
+- **Timeouts** (spec §40) — the real HTTP client (`buildFetchHttpClient`) aborts any request
+  after 8 seconds
+- **Stale data** (spec §40) — re-querying the same provider for the same indicator within
+  `IOC_ENRICHMENT_STALE_AFTER_HOURS` (default 24h) is skipped, returning the indicator
+  unchanged rather than burning provider quota for nothing; `?force=true` bypasses that cache
+  explicitly
+- **Missing data** (spec §40) — a provider 404 (nothing on file for this indicator) maps to
+  verdict `"unknown"`, not an error
+- **Response validation** (spec §56's principle applied to an external API, not just AI) — the
+  VirusTotal response is parsed as JSON and checked against a Zod schema before anything reads
+  from it; an unexpected shape throws a clean `ThreatIntelProviderError` instead of silently
+  reading `undefined` into a verdict
+
+**Testing** — real, executable tests for every piece that doesn't require an actual network
+call to VirusTotal:
+
+- `virusTotalProvider.test.ts` (12 tests) — `VirusTotalProvider` exercised against an injected
+  fake `HttpClient` (same DI pattern as `openaiProvider.test.ts`'s fake `ChatClient`): verdict/
+  score/confidence mapping for malicious/suspicious/clean/unknown, 404→unknown, 429→
+  `ThreatIntelQuotaError`, 401→non-retryable error, 5xx→retryable error, malformed-response
+  rejection, network-failure wrapping, correct API-key header, and correct per-type URL
+  construction
+- `ioc.test.ts`'s `enrich` suite (11 tests, HTTP-level, `FakeProvider` injected through
+  `createApp`'s `threatIntelProviders` dep) — auth required, `403` for a role lacking
+  `ioc:enrich`, `503` with zero providers configured, conservative score aggregation
+  (upgrades severity, never downgrades it), IDOR guard, `404` on a nonexistent indicator, the
+  staleness cache skipping a fresh provider and `?force=true` bypassing it, a failing provider
+  being skipped while a succeeding one still updates the indicator, `200`-not-error when every
+  provider fails, and an `IOC_ANALYZED` audit entry recorded under the real actor
+- Live-verified against the built server: unauthenticated → `401`, wrong permission → `403`,
+  no `VIRUSTOTAL_API_KEY` → `503` on an actual request, server boots cleanly either way
+
+**Honest limitation**: none of the above sends a real request to VirusTotal's API — there was
+no `VIRUSTOTAL_API_KEY` available in this environment. `VirusTotalProvider`'s actual network
+call is a thin pass-through to the injected `HttpClient`, exercised end-to-end against the fake
+client above; only the literal "make an HTTPS request to virustotal.com and get a real
+response back" step is unverified. Set `VIRUSTOTAL_API_KEY` in `.env` and try
+`POST /ioc/:id/enrich` against a running server to confirm that last step before relying on
+this in production.
+
+**Not built this phase**: threat correlation (spec §41, IP→domain→URL→hash→incident→user→
+technique relationship-building) is explicitly Phase 9's "threat graph/correlation," not this
+one — nothing here fabricates or infers relationships between indicators.
+
+## Phase 8 — Behavioral/Anomaly Detection
+
+A real, self-hosted Python service (`ml-service/`, FastAPI + scikit-learn `IsolationForest`,
+spec §42 — "do not start with an unnecessarily complex neural network") sits behind an
+`AnomalyDetectionProvider` abstraction (`src/anomalyDetection/anomalyProvider.ts`), the same DI
+shape as Phase 6/7's `AIProvider`/`ThreatIntelProvider`. `server.ts` constructs a real
+`MlServiceProvider` when `ML_SERVICE_URL` is set and `null` otherwise; `AnomalyDetectionService`
+treats `null` as "not configured" and returns a clean `503` — same posture as every other
+optional external dependency in this codebase.
+
+**What this covers:**
+
+- **`SecurityEvent` ingestion and storage** (`POST`/`GET /security-events`, `anomaly:detect`/
+  `anomaly:read`) — raw behavioral telemetry (logins, file access, endpoint hits, ...),
+  mirroring the frontend's `src/types/security-event.ts` with `organizationId` added, same as
+  every other domain type
+- **Deterministic feature extraction, never AI or the ML service's job** (spec §42's exact
+  feature list) — `featureExtraction.ts` computes the seven named features (login-hour
+  deviation, new-location flag, request frequency, resource access count, file downloads,
+  auth failures, unusual endpoint access) from a user's raw event history via plain arithmetic;
+  the ML service only ever receives the finished numbers, never raw events, so it stays a
+  narrow, reusable scoring component
+- **`POST /security-events/analyze/:userId`** (`anomaly:detect`) — validates the target user
+  belongs to the caller's own organization first (spec §19/§20: an IDOR guard identical to
+  every other cross-referenced ID in this codebase — a foreign user ID gets the same `404` as
+  a nonexistent one), computes features from their history, and returns the ML service's
+  verdict
+- **Explainability without an LLM** (spec §42: "anomaly score, confidence, features
+  contributing to anomaly") — `ml-service/app/model.py` computes all three from
+  `IsolationForest`'s own output plus a separate per-feature z-score against its training
+  baseline; see `ml-service/README.md` for the exact method
+- **A documented placeholder training baseline** — there's no real historical org telemetry to
+  train on yet (this is the first phase to produce `SecurityEvent`s at all), so the model
+  trains once at startup against a fixed-seed synthetic "typical behavior" baseline rather than
+  pretending a real training pipeline exists before one does (see `ml-service/README.md`)
+- **Rate limiting** (`createAnomalyRateLimit`, 15 requests/minute) — same reasoning as Phase
+  6/7: each analysis call is a real request to an external-to-the-request-path service
+- **Audit trail** — every analysis is recorded as `ANOMALY_DETECTED` against the real actor,
+  severity `medium` when the result flags an anomaly and `info` otherwise (mirrors
+  `RECOMMENDATION_APPROVED`'s reasoning: the audit entry reflects what was found, not just that
+  a check ran)
+
+**Testing** — real, executable tests for every piece that doesn't require the actual Python
+service running:
+
+- `featureExtraction.test.ts` (11 tests) — pure logic, no mocking needed: zero events → all
+  zeros, hour-deviation measured against a computed baseline (not an absolute clock value) and
+  defaulting to 0 with no baseline history, new-location flagging, requests-per-minute math,
+  distinct-endpoint counting, file-download/auth-failure counting, "unusual endpoint" only
+  flagged when a baseline of known endpoints actually exists, and window-boundary exclusion
+- `mlServiceProvider.test.ts` (7 tests) — `MlServiceProvider` exercised against an injected
+  fake `HttpClient` (same DI pattern as `openaiProvider.test.ts`/`virusTotalProvider.test.ts`):
+  correct response mapping, correct snake_case POST body the Python service expects, 422→
+  non-retryable error (our own payload was bad), 5xx→retryable error, malformed-response
+  rejection, network-failure wrapping, and out-of-range score rejected as a schema violation
+- `anomalyDetection.test.ts` (11 tests, HTTP-level, `FakeProvider` injected through
+  `createApp`'s `anomalyDetectionProvider` dep) — auth required, `403` for a role lacking
+  `anomaly:detect`, `503` with no provider configured, a real provider result (anomalous and
+  benign) passed through unmodified, `404` for a nonexistent user, the IDOR guard on
+  cross-organization analysis, `windowHours` respected, and an `ANOMALY_DETECTED` audit entry
+  recorded under the real actor
+- Live-verified against the built server: unauthenticated → `401`, wrong permission → `403`,
+  no `ML_SERVICE_URL` → `503` on an actual request, seeded events list and a new event ingests
+  successfully, server boots cleanly either way
+
+**Honest limitation — this one's bigger than Phase 6/7's**: the Python service itself
+(`ml-service/`) has never actually run in this environment. `pip install` for its dependencies
+(`fastapi`, `scikit-learn`, `numpy`, `scipy`, ...) failed three separate times against severely
+throttled/unstable network access — the same class of limitation as Phase 5's MongoDB and
+Phase 6/7's OpenAI/VirusTotal, handled the same way: the code is complete and real, not a
+stand-in. `python -m py_compile` confirms every file in `ml-service/` is syntactically valid,
+and everything on the Node side is genuinely tested end-to-end against a fake HTTP client — but
+the real `pytest` suite in `ml-service/tests/` and a live Node→Python round trip are
+**unexecuted**, which is a materially bigger gap than Phase 6/7 (there, only the literal
+external network hop was unverified; here, the service's own test suite is too). See
+`ml-service/README.md`'s own "Honest limitation" section, and run `pip install -r
+requirements.txt && pytest` there on a better connection before relying on this in production.
+
+**Not built this phase**: correlation between an anomaly and existing incidents/indicators
+(spec §41's relationship-building) — Phase 9's job, not this one. This phase produces an
+anomaly signal about a user; it doesn't decide what, if anything, that signal should connect
+to.
+
+## Phase 9 — Threat Graph & Correlation
+
+Phase 3 already built `GraphService` (`src/threatGraph/`), which *assembles* a graph purely
+from relationships already explicitly recorded on existing records (an indicator's own
+`relatedIncidentIds`, an incident's `mitreTechniqueIds`, ...). What Phase 9 adds is the piece
+spec §41 actually asks for that Phase 3 didn't cover: **discovering new relationships from
+evidence that isn't linked yet.**
+
+- **`findCorrelations`** (`src/threatGraph/correlation.ts`) — a pure, deterministic function
+  that compares one indicator against every other indicator and security event in the same
+  organization and reports concrete, literal matches: a security event's `sourceIp` equal to
+  an IP indicator's value, two IP indicators sharing the same ASN, two hashes sharing the same
+  `malwareFamily`, a domain indicator matching a URL indicator's `domain` field, or two
+  indicators sharing a tag. **Nothing here is inferred, fuzzy-matched, or AI-suggested** — spec
+  §41 is explicit: "do not fabricate relationships using AI." Every candidate has a fixed,
+  documented confidence (`high` for a direct observation or exact classification/domain match,
+  `medium` for shared infrastructure, `low` for a shared tag alone) — never learned, never
+  adjusted after the fact
+- **`GET /threat-graph/correlations/:indicatorId`** (`threat_graph:read`, same permission as
+  the graph itself) — returns the candidate list for one indicator. IDOR-guarded the same way
+  as every other indicator lookup: a nonexistent or foreign-org indicator ID gets an identical
+  `404`
+- **Candidates are never auto-linked** — spec §41: "AI may suggest possible relationships, but
+  deterministic evidence should be clearly separated [from confirmed links]." A candidate here
+  isn't AI at all, but the same separation principle applies: it's not written into
+  `sources[]`/`relatedIncidentIds`/etc. until an analyst reviews it and links the two records
+  for real through the existing investigation endpoints (`POST /investigations/:id/indicators`)
+  — the same human-in-the-loop shape Phase 6 established for AI recommendations, reused here
+  for a non-AI signal
+
+**Testing** — entirely real and executable; no external dependency of any kind:
+
+- `correlation.test.ts` (11 tests) — pure logic: each of the five evidence types matches when
+  it should and doesn't when the shared field is absent/different, the subject is never
+  matched against itself, multiple evidence types can surface for the same related indicator,
+  and no evidence returns an empty array
+- `graph.test.ts`'s `correlations` suite (6 new tests, HTTP-level) — auth required, `404` for a
+  nonexistent indicator, the IDOR guard, a real shared-domain-and-shared-tag correlation found
+  against the seeded `ind_4`/`ind_5` pair, a shared-`sourceIp` correlation against a seeded
+  security event, and an empty array (not an error) for an indicator with no matches
+- Live-verified against the built server: the seeded domain/URL pair returns both
+  `shared_domain` and `shared_tag` candidates, an unrelated hash indicator returns `[]`, and a
+  nonexistent indicator ID returns a clean `404`
+
+No "honest limitation" section this time — everything here is pure TypeScript logic over data
+already in the database, with no network call, external API, or unexecuted dependency
+anywhere in the path.
+
+**Not built this phase**: response workflows that act on a correlation candidate (Phase 10),
+and a persisted "confirmed correlation" record distinct from the underlying link fields it
+would just duplicate — today, confirming a candidate means using the existing investigation
+linking endpoints, which already record it for real.
+
 ## Not yet built (later phases — nothing here is silently faked)
 
-- RAG/vector search (Phase 6, deferred — see above), real threat-intel provider integrations
-  (Phase 7), anomaly detection (Phase 8), a real correlation/risk engine (Phase 9), response
-  workflows (Phase 10)
+- RAG/vector search (Phase 6, deferred — see above), a second threat-intel provider beyond
+  VirusTotal (Phase 7 supports it architecturally but only one is wired up), a real training
+  pipeline over actual org data for the anomaly-detection model (Phase 8's synthetic baseline
+  is a documented placeholder — see `ml-service/README.md`), a persisted "confirmed
+  correlation" record and response workflows that act on one (Phase 10)
 - Broader adversarial tooling Phase 4 didn't cover: Semgrep static analysis, OWASP ZAP
   dynamic scanning, and CI-integrated Dependabot — spec §3 devsecops recommendations that need
   either tool access or a CI pipeline this project doesn't have yet
@@ -339,7 +555,7 @@ direct prompt construction from explicitly-selected context.
   flow is testable end to end. This is a real, working token — just delivered by a different
   channel than production will eventually use.
 - Redis/BullMQ for background jobs, and a vector search index for RAG — both named in the
-  project's tech stack but not needed by anything built through Phase 5
+  project's tech stack but not needed by anything built through Phase 9
 
 ## Development
 
