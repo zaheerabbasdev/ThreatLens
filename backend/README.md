@@ -540,13 +540,80 @@ and a persisted "confirmed correlation" record distinct from the underlying link
 would just duplicate — today, confirming a candidate means using the existing investigation
 linking endpoints, which already record it for real.
 
+## Phase 10 — Response Workflows
+
+The RESPOND stage of the lifecycle (`DETECT→ENRICH→CORRELATE→ANALYZE→EXPLAIN→PRIORITIZE→
+RESPOND→AUDIT`). `src/responseWorkflow/` builds a `ResponseAction` — a request to block an IP,
+isolate a host, disable an account, force a password reset, block a domain, or quarantine a
+file — through two separate human gates, matching CLAUDE.md's core rule directly: *"Critical
+actions require deterministic backend validation and, where appropriate, human approval."*
+
+- **`response:request`** (every role except viewer) creates an action in `pending_execution`
+- **`response:execute`** (super_admin/security_admin only — the same tier as
+  `recommendations:approve`) either executes or rejects it. A double-execute or execute-after-
+  reject returns a clean `409`, not a silent no-op, so a repeated click can't be read as two
+  separate real actions
+
+**`POST /response-actions/apply-recommendation/:recommendationId`** closes the loop Phase 6's
+own code flagged as unfinished — `ai.service.ts`'s header comment on `Recommendation` says
+plainly: *"Nothing in this codebase transitions a recommendation to 'applied' automatically;
+that would be wiring a real response workflow (Phase 10)."* This endpoint is that wiring: it
+requires the recommendation to already be `status: "approved"` (Phase 6's human-in-the-loop
+gate — still pending or already-rejected recommendations get a `409`, checked before anything
+is created or executed, not after), then creates and immediately executes a `ResponseAction`
+tagged with `type: "recommended_action"` and `recommendationId`, and moves the recommendation
+to `status: "applied"` via a new `RecommendationRepository.markApplied()` (deliberately a
+method `review()`'s own type signature can't reach — `review()`'s status parameter explicitly
+excludes `"applied"`, so the only way a recommendation becomes applied is through this real
+workflow, never through the review endpoint being called with an unexpected value).
+
+**Execution is honestly simulated, never faked as real** — `ResponseActionExecutor`
+(`actionExecutor.ts`) is the same dependency-injection shape as `AIProvider`/
+`ThreatIntelProvider`/`AnomalyDetectionProvider`, but with one difference: there's no "not
+configured" `503` case, because the only implementation that exists yet —
+`SimulatedActionExecutor` — always succeeds. It **always** returns `isSimulated: true` and an
+`executionResult` string that says plainly no live EDR/firewall/IAM integration exists for
+this deployment and nothing was sent to an external system. Wiring a real executor behind the
+same interface is explicitly Phase 12's job ("integration" in the phase list) — this phase
+builds the entire workflow (request → approve/execute → audit) for real, with the one thing
+that's fundamentally out of scope until Phase 12 clearly labeled as such on every response,
+never silently implied as more than it is.
+
+**Testing** — entirely real; the executor has no external dependency to be unverified:
+
+- `actionExecutor.test.ts` (4 tests) — always reports `isSimulated: true`, includes the target
+  in its result, falls back sensibly with no target (`recommended_action`), and always states
+  plainly that no live integration exists
+- `responseWorkflow.test.ts` (19 tests, HTTP-level) — auth required, `403` for `response:request`
+  without permission and for `response:execute` without permission, `404` for a nonexistent
+  incident/action/recommendation, the IDOR guard, rejecting the internal-only
+  `recommended_action` type if submitted directly, the full request→execute flow, `409` on a
+  double-execute and on executing an already-rejected action, reject-instead-of-execute, all
+  three `apply-recommendation` outcomes (still-pending → `409`, rejected → `409`, approved →
+  `201` executed and the recommendation flips to `applied`), and an audit trail with
+  `RESPONSE_ACTION_REQUESTED`/`RESPONSE_ACTION_EXECUTED` recorded under the two different real
+  actors (the requesting analyst, then the approving admin)
+- Live-verified against the built server: an analyst requests a block-IP action, an admin
+  executes it and gets back a real `isSimulated: true` result with the exact target named, and
+  the analyst's own attempt to execute is a clean `403`
+
+No "honest limitation" section — like Phase 9, everything here is real logic with no external
+dependency in the path; the one thing that's intentionally not real (execution against an
+actual external system) is labeled as such in the response itself, not hidden in a README.
+
+**Not built this phase**: a real executor behind `ResponseActionExecutor` (Phase 12,
+"integration"), and `ResponseAction`/`ResponseActionRepository` aren't Mongo-backed yet —
+same tradeoff `RecommendationRepository`/`AIAnalysisRepository` already had; see Phase 5's
+section for the pattern this follows.
+
 ## Not yet built (later phases — nothing here is silently faked)
 
 - RAG/vector search (Phase 6, deferred — see above), a second threat-intel provider beyond
   VirusTotal (Phase 7 supports it architecturally but only one is wired up), a real training
   pipeline over actual org data for the anomaly-detection model (Phase 8's synthetic baseline
   is a documented placeholder — see `ml-service/README.md`), a persisted "confirmed
-  correlation" record and response workflows that act on one (Phase 10)
+  correlation" record (Phase 9), a real executor behind `ResponseActionExecutor` — actual
+  EDR/firewall/IAM integration (Phase 12)
 - Broader adversarial tooling Phase 4 didn't cover: Semgrep static analysis, OWASP ZAP
   dynamic scanning, and CI-integrated Dependabot — spec §3 devsecops recommendations that need
   either tool access or a CI pipeline this project doesn't have yet
@@ -555,7 +622,7 @@ linking endpoints, which already record it for real.
   flow is testable end to end. This is a real, working token — just delivered by a different
   channel than production will eventually use.
 - Redis/BullMQ for background jobs, and a vector search index for RAG — both named in the
-  project's tech stack but not needed by anything built through Phase 9
+  project's tech stack but not needed by anything built through Phase 10
 
 ## Development
 

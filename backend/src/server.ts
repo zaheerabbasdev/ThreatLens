@@ -43,6 +43,7 @@ import { MongoSecurityEventRepository } from "./repositories/securityEvent.repos
 import { seedDemoSecurityEvents } from "./repositories/securityEvent.seed.js";
 import { MlServiceProvider, buildFetchHttpClient as buildMlHttpClient } from "./anomalyDetection/mlServiceProvider.js";
 import type { AnomalyDetectionProvider } from "./anomalyDetection/anomalyProvider.js";
+import { InMemoryResponseActionRepository } from "./repositories/responseAction.repository.js";
 
 /**
  * null when OPENAI_API_KEY isn't set — AIService treats that as "AI
@@ -126,6 +127,9 @@ async function buildRepositories(): Promise<AppDependencies> {
     const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
     const securityEventRepository = new MongoSecurityEventRepository();
     await seedDemoSecurityEvents(securityEventRepository);
+    // Response actions aren't Mongo-backed yet either — same tradeoff as
+    // recommendations/aiAnalysis above.
+    const responseActionRepository = new InMemoryResponseActionRepository();
 
     return {
       userRepository,
@@ -144,6 +148,7 @@ async function buildRepositories(): Promise<AppDependencies> {
       threatIntelProviders: buildThreatIntelProviders(),
       securityEventRepository,
       anomalyDetectionProvider: buildAnomalyDetectionProvider(),
+      responseActionRepository,
     };
   }
 
@@ -172,6 +177,7 @@ async function buildRepositories(): Promise<AppDependencies> {
   const aiAnalysisRepository = new InMemoryAIAnalysisRepository();
   const securityEventRepository = new InMemorySecurityEventRepository();
   await seedDemoSecurityEvents(securityEventRepository);
+  const responseActionRepository = new InMemoryResponseActionRepository();
 
   return {
     userRepository,
@@ -190,6 +196,7 @@ async function buildRepositories(): Promise<AppDependencies> {
     threatIntelProviders: buildThreatIntelProviders(),
     securityEventRepository,
     anomalyDetectionProvider: buildAnomalyDetectionProvider(),
+    responseActionRepository,
   };
 }
 
