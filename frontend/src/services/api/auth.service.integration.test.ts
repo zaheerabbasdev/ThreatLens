@@ -20,7 +20,7 @@ import { ApiError, getAccessToken } from "./client";
  * whether the backend is available is only known after this file's async
  * `beforeAll` has run) if `backend/dist/server.js` hasn't been built yet.
  */
-const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../backend");
+const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../backend");
 const serverEntry = path.join(backendDir, "dist", "server.js");
 const PORT = 4400 + Math.floor(Math.random() * 500); // avoid colliding with a dev server or another test run
 const BASE_URL = `http://127.0.0.1:${PORT}/api/v1`;

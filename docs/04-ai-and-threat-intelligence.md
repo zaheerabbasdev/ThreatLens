@@ -133,7 +133,7 @@ backend/src/utils/risk.ts — severityFromScore(value: number): Severity
 
 This single function is the only thing that maps a numeric score to a severity label,
 anywhere in the backend — used identically for IOC enrichment and mirrored exactly on the
-frontend (`src/utils/risk.ts`) so a "high" indicator means the same thing in both layers. No
+frontend (`frontend/src/utils/risk.ts`) so a "high" indicator means the same thing in both layers. No
 AI call ever sets a `riskScore` or `severity` field directly.
 
 ## 10. Anomaly detection (ML, not AI/LLM)

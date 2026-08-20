@@ -24,7 +24,7 @@ import { ApiAIService } from "./ai.service";
  * shared interface. Uses the real seeded demo data (org_northwind, inc_1,
  * ind_1, ...) every backend test file in backend/src already depends on.
  */
-const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../backend");
+const backendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../backend");
 const serverEntry = path.join(backendDir, "dist", "server.js");
 const PORT = 4900 + Math.floor(Math.random() * 90);
 const BASE_URL = `http://127.0.0.1:${PORT}/api/v1`;

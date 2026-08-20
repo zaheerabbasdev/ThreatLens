@@ -678,6 +678,11 @@ phase is that replacement — the frontend's `FINAL EXECUTION INSTRUCTION` spec 
 directly: *"Replace mock services incrementally... do not break the completed frontend...
 maintain backward compatibility with established frontend contracts."*
 
+Paths below are given relative to the frontend app's own root. At the time this phase was
+built, that root *was* the repository root; a later increment moved the whole frontend into a
+top-level `frontend/` folder (mirroring `backend/` and `ml-service/`) — so read every `src/...`
+path below as `frontend/src/...` today.
+
 **What changed, and where:**
 - `src/services/api/` (frontend) — one real `Api*Service` per ported interface, each a thin
   HTTP client translating the exact same method signatures the mocks already implement into

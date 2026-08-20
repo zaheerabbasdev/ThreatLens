@@ -49,7 +49,7 @@ drop-in — see §2 below.
 ## 2. Frontend architecture
 
 ```
-src/
+frontend/src/
   api/          TanStack Query hooks (useIncidents, useAlerts, ...) — the only thing
                 components should import to read/write data
   components/   Shared, reusable UI building blocks
@@ -68,19 +68,19 @@ src/
   mocks/        Static demo data consumed by the mock services
 ```
 
-**Data flow, top to bottom**: a page imports a hook from `src/api/` (e.g.
+**Data flow, top to bottom**: a page imports a hook from `frontend/src/api/` (e.g.
 `useIncidents()`); the hook wraps a TanStack Query `useQuery`/`useMutation` call whose
 `queryFn`/`mutationFn` calls `services.incidents.list(...)`; `services` is resolved once, at
-module load, in `src/services/index.ts`, to either the mock or real implementation. No
+module load, in `frontend/src/services/index.ts`, to either the mock or real implementation. No
 component or hook ever imports a `Mock*Service` or `Api*Service` directly — they only ever
 see the shared interface. This is what makes the mock-to-real swap (Phase 12) possible without
 touching any component.
 
 ```mermaid
 flowchart LR
-    Page[Page component] --> Hook["Hook (src/api/useX.ts)"]
+    Page[Page component] --> Hook["Hook (frontend/src/api/useX.ts)"]
     Hook --> TQ[TanStack Query]
-    TQ --> SI["services (src/services/index.ts)"]
+    TQ --> SI["services (frontend/src/services/index.ts)"]
     SI -->|"VITE_API_BASE_URL unset\n(default)"| Mock[Mock*Service]
     SI -->|"VITE_API_BASE_URL set"| Api[Api*Service]
     Api -->|"fetch()"| Backend[(Real backend)]
@@ -88,11 +88,12 @@ flowchart LR
 
 **Why TanStack Query**: every list/detail view gets caching, background refetching, and
 request de-duplication for free, and every mutation has a consistent
-optimistic-update/invalidate-on-success pattern (see any `use*.ts` file in `src/api/`).
+optimistic-update/invalidate-on-success pattern (see any `use*.ts` file in `frontend/src/api/`).
 
 **Rendering strategy**: every route is lazy-loaded (`React.lazy` + `Suspense` in
-`src/routes/AppRoutes.tsx`), so the initial bundle only includes what the landing/login pages
-need — see the `dist/assets/*.js` chunk breakdown after `npm run build` for the actual split.
+`frontend/src/routes/AppRoutes.tsx`), so the initial bundle only includes what the
+landing/login pages need — see the `dist/assets/*.js` chunk breakdown after `npm run build`
+for the actual split.
 
 ## 3. Backend architecture
 
@@ -112,7 +113,7 @@ backend/src/
                     depending on which backend is active
   database/models/ Mongoose schemas (only used when MONGODB_URI is set)
   types/           domain entity types — the backend's own copy of the shared vocabulary,
-                    kept in sync with the frontend's src/types/ by hand
+                    kept in sync with `frontend/src/types/` by hand
   utils/           logger (Pino, redacts secrets), API response envelope helpers
   routes/index.ts  mounts every domain's router under /api/v1
   app.ts           assembles the Express app from injected dependencies — no side effects,
@@ -187,7 +188,7 @@ Every request that isn't public passes through two gates, in order:
 2. **`requirePermission(permission)`** — checks `req.user.role` against a fixed permission
    matrix (`backend/src/auth/permissions.ts`) for the specific action the route represents.
 
-The frontend has its own copy of the same matrix (`src/constants/roles.ts`) used only to hide/
+The frontend has its own copy of the same matrix (`frontend/src/constants/roles.ts`) used only to hide/
 disable UI the current user can't use — **that copy has no security value on its own**; the
 backend's copy is the only one actually enforced. See `docs/02-security.md` for the full
 matrix and the reasoning behind it.

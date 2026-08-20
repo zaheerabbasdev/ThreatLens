@@ -109,15 +109,17 @@ git clone https://github.com/zaheerabbasdev/ThreatLens.git
 cd ThreatLens
 ```
 
-The project has two independent Node.js applications in this one folder: the frontend (in the
-folder root) and the backend (in `backend/`). You'll set each one up separately.
+The project has two independent Node.js applications in this one folder: the frontend (in
+`frontend/`) and the backend (in `backend/`). You'll set each one up separately.
 
 ### Step 7 — Install dependencies
 
 Install the frontend's dependencies:
 
 ```bash
+cd frontend
 npm install
+cd ..
 ```
 
 Then install the backend's dependencies:
@@ -165,7 +167,9 @@ Run that command twice (once per secret) and paste each result in. Everything el
 built-in mock data; see Step 9):
 
 ```bash
+cd frontend
 cp .env.example .env.local
+cd ..
 ```
 
 ### Step 9 — Configure MongoDB (optional)
@@ -244,9 +248,10 @@ Leave this terminal window running. Open a **new** terminal for the next step.
 
 ### Step 15 — Run the frontend
 
-From the project root (a new terminal window):
+From the `frontend/` folder (a new terminal window):
 
 ```bash
+cd frontend
 npm run dev
 ```
 
@@ -307,9 +312,11 @@ at least 32 characters" means Step 8 wasn't completed correctly).
 
 ```bash
 # Frontend
+cd frontend
 npm run typecheck
 npm run lint
 npm test
+cd ..
 
 # Backend
 cd backend

@@ -87,12 +87,13 @@ above has the full detail.
 git clone https://github.com/zaheerabbasdev/ThreatLens.git
 cd ThreatLens
 
-npm install && cd backend && npm install && cd ..
+cd frontend && npm install && cd ../backend && npm install && cd ..
 cd backend && cp .env.example .env   # then fill in JWT_ACCESS_SECRET / JWT_REFRESH_SECRET
 npm run dev                           # backend, http://localhost:4000
 ```
 ```bash
-# in a second terminal, from the project root
+# in a second terminal
+cd frontend
 npm run dev                           # frontend, http://localhost:5173
 ```
 
@@ -126,6 +127,7 @@ Python anomaly-detection service.
 
 ```bash
 # Frontend
+cd frontend
 npm run typecheck && npm run lint && npm test && npm run test:e2e
 
 # Backend

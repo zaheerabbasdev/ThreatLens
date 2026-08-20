@@ -45,9 +45,12 @@ neural net).
 ## Frontend architecture
 
 ```
-src/{components,layouts,pages,routes,services,services/mock,api,mocks,hooks,utils,
-     types,schemas,animations,constants,assets,styles}
+frontend/src/{components,layouts,pages,routes,services,services/mock,api,mocks,hooks,utils,
+              types,schemas,animations,constants,assets,styles}
 ```
+
+(The frontend app lives in a top-level `frontend/` folder, alongside `backend/` and
+`ml-service/` — each is an independent app with its own `package.json`/toolchain.)
 
 UI → application logic → services → mock data. Never scatter mock data inside components.
 Mock service interfaces (`AuthService`, `ThreatService`, `IncidentService`, `AlertService`,

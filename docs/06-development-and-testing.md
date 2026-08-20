@@ -9,7 +9,7 @@ regression (typecheck + lint + test + build), verify it against a running server
 continue.
 
 Two independent apps, two independent toolchains — always run commands from the right folder
-(project root for the frontend, `backend/` for the backend).
+(`frontend/` for the frontend, `backend/` for the backend).
 
 ## 2. Coding standards
 
@@ -19,8 +19,8 @@ Two independent apps, two independent toolchains — always run commands from th
   (backend), and external API responses (backend) are never trusted without a schema.
 - **No duplicated business logic** — shared logic is extracted to a hook/service/util rather
   than copy-pasted; e.g. `severityFromScore` exists in exactly one place per app
-  (`src/utils/risk.ts` and `backend/src/utils/risk.ts`), kept in sync by hand and identical
-  on purpose.
+  (`frontend/src/utils/risk.ts` and `backend/src/utils/risk.ts`), kept in sync by hand and
+  identical on purpose.
 - **No purple, no decorative gradients, no emoji, no mixed icon libraries** — Font Awesome
   only, one consistent style. Severity is always icon + label + color, never color alone.
 - **No client-supplied identity ever trusted** — actor names/IDs for anything security-
@@ -33,13 +33,15 @@ See `docs/01-architecture.md` §2/§3 for the full frontend/backend folder break
 ## 4. Linting & formatting
 
 ```bash
-npm run lint         # ESLint — both frontend (root) and backend (backend/)
+npm run lint         # ESLint — run separately in frontend/ and backend/, each has its own config
 ```
 
 Prettier is a frontend dev-dependency for formatting; there's no separate `format` script —
 most editors apply it on save via the Prettier extension using the repo's config.
 
 ## 5. Testing — frontend
+
+All commands below run from `frontend/`:
 
 ```bash
 npm run typecheck
@@ -61,14 +63,16 @@ browser behavior (e.g. cookie handling) rather than a simulated DOM. On a fresh 
 install the browser binary once first: `npx playwright install chromium` (there's no
 `postinstall` hook that does this automatically).
 
-**Real-backend integration tests** (`src/services/api/*.integration.test.ts`) — the newest and
-strongest layer, added in Phase 12. These spawn the actual compiled backend
+**Real-backend integration tests** (`frontend/src/services/api/*.integration.test.ts`) — the
+newest and strongest layer, added in Phase 12. These spawn the actual compiled backend
 (`backend/dist/server.js`) as a child process and exercise the real `Api*Service` classes
 against it over genuine HTTP — no mocked `fetch`. They skip automatically (not fail) if the
 backend hasn't been built yet; run `npm run build` in `backend/` first if you want them to
 actually execute.
 
 ## 6. Testing — backend
+
+All commands below run from `backend/`:
 
 ```bash
 npm run typecheck
@@ -114,8 +118,8 @@ being considered done:
 npm run typecheck && npm run lint && npm test && npm run build
 ```
 
-run in **both** the project root and `backend/`. This is not optional ceremony — it's what
-caught every real bug documented in this project's build history before it shipped.
+run in **both** `frontend/` and `backend/`. This is not optional ceremony — it's what caught
+every real bug documented in this project's build history before it shipped.
 
 ## 9. Debugging approach
 

@@ -54,7 +54,8 @@ examples above use placeholders; substitute your own real values.
 
 ## 3. Deployment
 
-No CI/CD pipeline or Dockerfile exists in this repository yet. To deploy manually:
+No Dockerfile or automatic deploy-on-push exists (see §5 for the CI workflow that does exist —
+it verifies every change, but doesn't deploy anywhere). To deploy manually:
 
 **Backend:**
 ```bash
@@ -66,6 +67,7 @@ npm start             # node dist/server.js
 
 **Frontend:**
 ```bash
+cd frontend
 npm ci
 npm run build         # produces dist/ — upload this to your static host
 ```
@@ -78,13 +80,14 @@ needed — nothing about the codebase assumes or requires a container runtime.
 
 ## 5. CI/CD
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
-four independent jobs — `frontend` (typecheck, lint, test, build), `frontend-e2e` (Playwright
-against a real production build, installing Chromium fresh each run), `backend` (typecheck,
-lint, test, build), and `audit` (`npm audit --audit-level=high` in both the frontend and
-backend). This is the exact same quality gate every change in this project's history was held
-to manually (`docs/06-development-and-testing.md` §11), now automated instead of relying on
-discipline alone.
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR to `master`: five
+independent jobs — `frontend` (typecheck, lint, test, build, in `frontend/`), `frontend-e2e`
+(Playwright against a real production build, installing Chromium fresh each run), `backend`
+(typecheck, lint, test, build, in `backend/`), `ml-service` (`pytest`, in `ml-service/`), and
+`audit` (`npm audit --audit-level=high` in both `frontend/` and `backend/`). This is the exact
+same quality gate every change in this project's history was held to manually
+(`docs/06-development-and-testing.md` §8), now automated instead of relying on discipline
+alone.
 
 **Not yet added**: static-analysis/dependency-scanning tools beyond `npm audit` — Semgrep,
 OWASP ZAP, and Dependabot are named in `docs/02-security.md` §18 as still-manual/unconfigured.

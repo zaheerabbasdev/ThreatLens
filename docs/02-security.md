@@ -69,7 +69,7 @@ real requests and asserts the 11th gets a real `429`.
 Four roles: `super_admin`, `security_admin`, `security_analyst`, `viewer`.
 
 The full, current permission matrix lives in `backend/src/auth/permissions.ts` (mirrored, for
-UX only, in `src/constants/roles.ts` on the frontend). As of this writing:
+UX only, in `frontend/src/constants/roles.ts`). As of this writing:
 
 | Permission | super_admin | security_admin | security_analyst | viewer |
 |---|:---:|:---:|:---:|:---:|
@@ -191,7 +191,7 @@ server.
 Every request body, query param, and route param that reaches a controller is parsed through
 a Zod schema before the service layer ever sees it (`*.schemas.ts` next to every
 `*.controller.ts`). This is the authoritative validation — the frontend's matching Zod schemas
-(`src/schemas/`) are UX, not security, and the backend's rules are kept identical on purpose so
+(`frontend/src/schemas/`) are UX, not security, and the backend's rules are kept identical on purpose so
 a user is never told "valid" by the client and then rejected by the API.
 
 Specific, non-generic validation exists for domain-shaped input: IPv4/IPv6 via Node's
