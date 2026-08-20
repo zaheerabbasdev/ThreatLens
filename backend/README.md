@@ -469,18 +469,17 @@ service running:
   no `ML_SERVICE_URL` → `503` on an actual request, seeded events list and a new event ingests
   successfully, server boots cleanly either way
 
-**Honest limitation — this one's bigger than Phase 6/7's**: the Python service itself
-(`ml-service/`) has never actually run in this environment. `pip install` for its dependencies
-(`fastapi`, `scikit-learn`, `numpy`, `scipy`, ...) failed three separate times against severely
-throttled/unstable network access — the same class of limitation as Phase 5's MongoDB and
-Phase 6/7's OpenAI/VirusTotal, handled the same way: the code is complete and real, not a
-stand-in. `python -m py_compile` confirms every file in `ml-service/` is syntactically valid,
-and everything on the Node side is genuinely tested end-to-end against a fake HTTP client — but
-the real `pytest` suite in `ml-service/tests/` and a live Node→Python round trip are
-**unexecuted**, which is a materially bigger gap than Phase 6/7 (there, only the literal
-external network hop was unverified; here, the service's own test suite is too). See
-`ml-service/README.md`'s own "Honest limitation" section, and run `pip install -r
-requirements.txt && pytest` there on a better connection before relying on this in production.
+**Update — verified for real.** `pip install` for the Python service's dependencies failed
+three separate times against severely throttled network access (the same class of limitation
+Phase 5's MongoDB section describes) before a later attempt succeeded. Once installed, the
+real `pytest` suite in `ml-service/tests/` was run for the first time: **14/14 passed.** A live
+end-to-end round trip was also verified — the real FastAPI service running, the real Node
+backend pointed at it via `ML_SERVICE_URL`, and a real authenticated
+`POST /security-events/analyze/user_3` request flowing all the way through: deterministic
+feature extraction → real HTTP call → real `IsolationForest` scoring → back through the full
+stack, correctly flagging the seeded suspicious-activity cluster (`anomalyScore: 91.1`,
+`confidence: "high"`, `login_hour_deviation` correctly ranked as the top contributing feature).
+See `ml-service/README.md` for the full detail.
 
 **Not built this phase**: correlation between an anomaly and existing incidents/indicators
 (spec §41's relationship-building) — Phase 9's job, not this one. This phase produces an

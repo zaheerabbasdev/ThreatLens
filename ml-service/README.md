@@ -110,17 +110,26 @@ at this service; leaving it unset disables anomaly detection with a clean `503`,
   `/analyze` returns a full result for valid input, and malformed/out-of-range input is
   rejected with `422` (Pydantic validation, not a 500).
 
-**Honest limitation**: none of the above has actually been executed in the environment this
-was built in. `pip install` for this service's dependencies (`fastapi`, `scikit-learn`,
-`numpy`, ...) failed three separate times against severely throttled/unstable network access —
-the same class of environment limitation documented in `backend/README.md`'s Phase 5 (MongoDB)
-and Phase 6/7 (OpenAI/VirusTotal) sections, and handled the same way here: the code is written
-completely and for real, `python -m py_compile` confirms every file is syntactically valid
-Python, and the Node-side integration (`mlServiceProvider.ts`, wired through `AnomalyDetection
-Service`) is fully tested against a fake HTTP client — but the actual `pytest` run against real
-scikit-learn/FastAPI, and a live Node→Python round trip, have not happened here. Run
-`pip install -r requirements.txt && pytest` on a connection that can complete the ~100MB
-scikit-learn/numpy/scipy download before relying on this in production.
+**Verified for real.** After three earlier failed attempts (`pip install` kept failing against
+severely throttled network access — the same class of limitation `backend/README.md`'s Phase 5
+section describes for MongoDB), a later attempt succeeded and the full suite actually ran:
+
+```
+14 passed, 1 warning in 36.23s
+```
+
+A live, end-to-end round trip was also verified, for the first time: the real FastAPI service
+running (`uvicorn app.main:app`), the real Node backend pointed at it via `ML_SERVICE_URL`,
+and a real authenticated `POST /security-events/analyze/:userId` request flowing through
+deterministic feature extraction → a real HTTP call → real `IsolationForest` scoring → back
+through the full stack. It correctly flagged the seeded suspicious-activity cluster (off-hours
+login, new location, failed auth attempts) with `anomalyScore: 91.1`, `confidence: "high"`, and
+`login_hour_deviation` correctly ranked as the top contributing feature.
+
+If `pip install -r requirements.txt` ever fails for you the same way it did here initially, the
+large `scipy`/`numpy` wheels are the likely culprit on a slow connection — simply re-running
+`pip install -r requirements.txt` picks up from pip's own cache rather than re-downloading
+every package from zero, which is what eventually got this environment past it.
 
 ## Not yet built
 

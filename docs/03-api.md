@@ -78,10 +78,7 @@ includes `{total, page, pageSize}`.
 | Enrichment | 15 req/min | `POST /ioc/:id/enrich` (also stacked on the baseline) |
 | Anomaly | 15 req/min | `POST /security-events/analyze/:userId` (also stacked on the baseline) |
 
-All limiters are per-IP. A `429` includes `code: "TOO_MANY_REQUESTS"`. A separate, stricter
-"public" tier (`createPublicRateLimit`, 30 req/min) exists in
-`backend/src/middleware/rateLimit.ts` but isn't currently wired to any route — the baseline
-tier above is what actually protects unauthenticated endpoints today.
+All limiters are per-IP. A `429` includes `code: "TOO_MANY_REQUESTS"`.
 
 ---
 

@@ -29,11 +29,6 @@ export function createApiRateLimit(): RequestHandler {
   return rateLimit({ ...shared, windowMs: 60_000, limit: 120 });
 }
 
-/** Public, unauthenticated endpoints — STRICTER. */
-export function createPublicRateLimit(): RequestHandler {
-  return rateLimit({ ...shared, windowMs: 60_000, limit: 30 });
-}
-
 /** Login/registration/refresh — STRICT (brute-force protection, spec §24). */
 export function createAuthRateLimit(): RequestHandler {
   return rateLimit({ ...shared, windowMs: 15 * 60_000, limit: 10 });

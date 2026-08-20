@@ -78,12 +78,18 @@ needed — nothing about the codebase assumes or requires a container runtime.
 
 ## 5. CI/CD
 
-**Not built.** No GitHub Actions workflow or equivalent exists yet. The "quality gate" every
-change is expected to pass (`docs/06-development-and-testing.md` §11) is currently enforced by
-discipline, not automation. Wiring the same commands (`typecheck && lint && test && build`, in
-both the frontend and backend) into a CI workflow on every push/PR is the natural next step,
-along with the static-analysis/dependency-scanning tools named in
-`docs/02-security.md` §18 (Semgrep, OWASP ZAP, Dependabot) — none of which are configured yet.
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push/PR to `master`:
+four independent jobs — `frontend` (typecheck, lint, test, build), `frontend-e2e` (Playwright
+against a real production build, installing Chromium fresh each run), `backend` (typecheck,
+lint, test, build), and `audit` (`npm audit --audit-level=high` in both the frontend and
+backend). This is the exact same quality gate every change in this project's history was held
+to manually (`docs/06-development-and-testing.md` §11), now automated instead of relying on
+discipline alone.
+
+**Not yet added**: static-analysis/dependency-scanning tools beyond `npm audit` — Semgrep,
+OWASP ZAP, and Dependabot are named in `docs/02-security.md` §18 as still-manual/unconfigured.
+Also not configured: automatic deployment on a successful `master` build (this workflow only
+verifies; it doesn't deploy anywhere) — wire that in once you've picked a hosting target (§1).
 
 ## 6. Secrets in production
 

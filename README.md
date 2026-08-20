@@ -159,7 +159,6 @@ Documented honestly, not hidden — the short version:
 - **The MongoDB-backed repository path** was built and unit-tested but has not been exercised
   against a real MongoDB instance in this project's own development environment — run
   `npm run test:mongo` in `backend/` before trusting it in production.
-- **No CI/CD pipeline** exists yet.
 
 See each linked document above for the full, current list — they're kept accurate as the
 project evolves, this summary might not always be.
