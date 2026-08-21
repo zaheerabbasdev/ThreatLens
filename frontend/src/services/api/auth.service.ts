@@ -1,4 +1,10 @@
-import type { AuthService, ChangePasswordInput, LoginInput, RegisterInput } from "@/services/auth.service";
+import type {
+  AuthService,
+  ChangePasswordInput,
+  LoginInput,
+  PasswordResetRequestResult,
+  RegisterInput,
+} from "@/services/auth.service";
 import type { AuthSession, User } from "@/types";
 import { apiRequest, ApiError, getAccessToken, setAccessToken } from "./client";
 
@@ -43,9 +49,11 @@ export class ApiAuthService implements AuthService {
     return toSession(body);
   }
 
-  async requestPasswordReset(email: string): Promise<{ sent: true }> {
-    await apiRequest<{ sent: true }>("/auth/forgot-password", { method: "POST", body: { email } });
-    return { sent: true };
+  async requestPasswordReset(email: string): Promise<PasswordResetRequestResult> {
+    return apiRequest<PasswordResetRequestResult>("/auth/forgot-password", {
+      method: "POST",
+      body: { email },
+    });
   }
 
   async resetPassword(input: { token: string; password: string }): Promise<{ success: boolean }> {

@@ -1,4 +1,10 @@
-import type { AuthService, ChangePasswordInput, LoginInput, RegisterInput } from "@/services/auth.service";
+import type {
+  AuthService,
+  ChangePasswordInput,
+  LoginInput,
+  PasswordResetRequestResult,
+  RegisterInput,
+} from "@/services/auth.service";
 import type { AuthSession, User } from "@/types";
 import { DEMO_CREDENTIALS, MOCK_USERS } from "@/mocks/identity";
 import { generateId } from "@/utils/id";
@@ -69,7 +75,7 @@ export class MockAuthService implements AuthService {
     return writeSession(newUser);
   }
 
-  async requestPasswordReset(_email: string): Promise<{ sent: true }> {
+  async requestPasswordReset(_email: string): Promise<PasswordResetRequestResult> {
     await delay(undefined, 500);
     // Always resolves the same way regardless of whether the email exists,
     // so the UI never leaks account existence.

@@ -17,6 +17,12 @@ export interface ChangePasswordInput {
   newPassword: string;
 }
 
+export interface PasswordResetRequestResult {
+  sent: true;
+  /** Development-only token returned when no mail provider is configured. */
+  devToken?: string;
+}
+
 /**
  * Auth service contract. `MockAuthService` implements this today; a future
  * `ApiAuthService` backed by the real backend replaces it without any
@@ -25,7 +31,7 @@ export interface ChangePasswordInput {
 export interface AuthService {
   login(input: LoginInput): Promise<AuthSession>;
   register(input: RegisterInput): Promise<AuthSession>;
-  requestPasswordReset(email: string): Promise<{ sent: true }>;
+  requestPasswordReset(email: string): Promise<PasswordResetRequestResult>;
   resetPassword(input: { token: string; password: string }): Promise<{ success: boolean }>;
   verifyEmail(token: string): Promise<{ verified: boolean }>;
   getSession(): Promise<AuthSession | null>;

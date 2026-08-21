@@ -8,7 +8,7 @@ import { SEVERITY_HEX } from "@/constants/chartColors";
 import styles from "./RiskScoreCard.module.css";
 
 export interface RiskScoreCardProps {
-  data?: RiskScore;
+  data?: RiskScore | null;
   loading?: boolean;
   title?: string;
   factorLimit?: number;

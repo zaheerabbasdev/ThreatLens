@@ -13,7 +13,7 @@ export interface TopTechnique {
  * it per spec §40/§41 without UI changes.
  */
 export interface ThreatService {
-  getOrgRiskScore(): Promise<RiskScore>;
+  getOrgRiskScore(): Promise<RiskScore | null>;
   getRiskScoreById(id: string): Promise<RiskScore | null>;
   listTopIndicators(limit?: number): Promise<Indicator[]>;
   listActivityTimeline(): Promise<ThreatActivityPoint[]>;

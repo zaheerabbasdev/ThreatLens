@@ -11,6 +11,7 @@ import styles from "./AuthForm.module.css";
 
 export function ForgotPassword() {
   const [sent, setSent] = useState(false);
+  const [devResetToken, setDevResetToken] = useState<string | undefined>();
 
   const {
     register,
@@ -19,7 +20,8 @@ export function ForgotPassword() {
   } = useForm<ForgotPasswordInput>({ resolver: zodResolver(forgotPasswordSchema) });
 
   async function onSubmit(values: ForgotPasswordInput) {
-    await services.auth.requestPasswordReset(values.email);
+    const response = await services.auth.requestPasswordReset(values.email);
+    setDevResetToken(response.devToken);
     setSent(true);
   }
 
@@ -33,6 +35,14 @@ export function ForgotPassword() {
         <p className={styles.subtitle}>
           If an account exists for that address, we've sent a link to reset your password.
         </p>
+        {devResetToken && (
+          <p className={styles.subtitle}>
+            Local development reset link: {" "}
+            <Link to={`/reset-password?token=${encodeURIComponent(devResetToken)}`} className={styles.link}>
+              Continue to password reset
+            </Link>
+          </p>
+        )}
         <Link to="/login" className={styles.link}>
           Back to sign in
         </Link>

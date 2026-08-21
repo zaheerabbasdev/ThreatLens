@@ -9,7 +9,7 @@ import { ApiAuditService } from "./audit.service";
 import { ApiGraphService } from "./graph.service";
 import { ApiMitreService } from "./mitre.service";
 import { ApiInvestigationService } from "./investigation.service";
-import { MockThreatService } from "../mock/threat.service.mock";
+import { ApiThreatService } from "./threat.service";
 
 /**
  * Composition root for the REAL backend (Phase 12). Ported services call
@@ -43,5 +43,5 @@ export const services = {
   mitre: new ApiMitreService(),
   investigations: new ApiInvestigationService(),
   // --- Not yet ported — see the module comment above.
-  threat: new MockThreatService(),
+  threat: new ApiThreatService(),
 };
