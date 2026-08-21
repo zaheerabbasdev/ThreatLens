@@ -1,4 +1,4 @@
-import type { UpdateProfileInput, UserListParams, UserService } from "@/services/user.service";
+import type { InviteUserInput, UpdateProfileInput, UserListParams, UserService } from "@/services/user.service";
 import type { AccountStatus, Organization, PaginatedResult, Role, User } from "@/types";
 import { apiRequest, apiRequestOrNull, requestWithMeta } from "./client";
 
@@ -41,5 +41,9 @@ export class ApiUserService implements UserService {
 
   setMfaEnabled(id: string, enabled: boolean): Promise<User> {
     return apiRequest<User>(`/users/${id}/mfa`, { method: "PATCH", body: { enabled } });
+  }
+
+  invite(input: InviteUserInput): Promise<User> {
+    return apiRequest<User>("/users/invite", { method: "POST", body: input });
   }
 }

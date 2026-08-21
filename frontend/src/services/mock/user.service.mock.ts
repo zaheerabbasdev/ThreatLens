@@ -1,4 +1,4 @@
-import type { UpdateProfileInput, UserListParams, UserService } from "@/services/user.service";
+import type { InviteUserInput, UpdateProfileInput, UserListParams, UserService } from "@/services/user.service";
 import type { AccountStatus, Organization, PaginatedResult, Role, User } from "@/types";
 import { MOCK_ORGANIZATION, MOCK_USERS } from "@/mocks/identity";
 import { delay, paginate } from "./util";
@@ -65,6 +65,23 @@ export class MockUserService implements UserService {
     await delay(undefined, 300);
     const user = requireUser(id);
     user.mfaEnabled = enabled;
+    return { ...user };
+  }
+
+  async invite(input: InviteUserInput): Promise<User> {
+    await delay(undefined, 400);
+    const user: User = {
+      id: `user_${Date.now()}`,
+      organizationId: "org_northwind",
+      name: input.name,
+      email: input.email,
+      role: input.role,
+      status: "invited",
+      avatarSeed: `avatar_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      mfaEnabled: false,
+    };
+    MOCK_USERS.push(user);
     return { ...user };
   }
 }

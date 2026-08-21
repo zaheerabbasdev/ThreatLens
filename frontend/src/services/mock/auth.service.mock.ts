@@ -90,6 +90,11 @@ export class MockAuthService implements AuthService {
     return { success: true };
   }
 
+  async acceptInvitation(_input: { token: string; password: string }): Promise<{ accepted: boolean }> {
+    await delay(undefined, 500);
+    return { accepted: true };
+  }
+
   async verifyEmail(token: string): Promise<{ verified: boolean }> {
     await delay(undefined, 500);
     return { verified: token !== "invalid" };

@@ -31,6 +31,7 @@ export interface AuthService {
   register(input: RegisterInput): Promise<AuthSession>;
   requestPasswordReset(email: string): Promise<PasswordResetRequestResult>;
   resetPassword(input: { email: string; code: string; password: string }): Promise<{ success: boolean }>;
+  acceptInvitation(input: { token: string; password: string }): Promise<{ accepted: boolean }>;
   verifyEmail(token: string): Promise<{ verified: boolean }>;
   getSession(): Promise<AuthSession | null>;
   /** Re-syncs the current session's user data from the source of truth —

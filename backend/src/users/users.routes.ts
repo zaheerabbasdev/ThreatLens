@@ -11,6 +11,7 @@ export function createUsersRouter(controller: UsersController): Router {
   // (which viewer and security_analyst don't have; see auth/permissions.ts).
   router.get("/", requirePermission("users:read"), controller.list);
   router.get("/:id", requirePermission("users:read"), controller.getById);
+  router.post("/invite", requirePermission("users:manage"), controller.invite);
 
   // Self-service — every authenticated role can edit their OWN profile and
   // MFA setting regardless of users:read/users:manage. The self-or-admin

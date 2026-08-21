@@ -12,6 +12,7 @@ export type AuditAction =
   | "MFA_CHANGED"
   | "ROLE_CHANGED"
   | "USER_CREATED"
+  | "USER_INVITED"
   | "USER_STATUS_CHANGED"
   | "PROFILE_UPDATED"
   | "INCIDENT_CREATED"

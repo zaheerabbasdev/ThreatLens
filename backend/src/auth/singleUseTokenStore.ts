@@ -54,5 +54,6 @@ export class SingleUseTokenStore {
 
 /** 1 hour — matches the frontend's password-reset UX copy expectations. */
 export const passwordResetTokens = new SingleUseTokenStore(60 * 60_000);
+export const invitationTokens = new SingleUseTokenStore(7 * 24 * 60 * 60_000);
 /** 24 hours — verification links are less time-sensitive than a reset. */
 export const emailVerificationTokens = new SingleUseTokenStore(24 * 60 * 60_000);

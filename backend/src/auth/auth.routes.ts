@@ -18,6 +18,7 @@ export function createAuthRouter(controller: AuthController): Router {
   router.post("/forgot-password", sensitiveActionRateLimit, controller.forgotPassword);
   router.post("/reset-password", sensitiveActionRateLimit, controller.resetPassword);
   router.post("/verify-email", sensitiveActionRateLimit, controller.verifyEmail);
+  router.post("/accept-invitation", sensitiveActionRateLimit, controller.acceptInvitation);
 
   router.get("/me", requireAuth, controller.me);
   router.post("/change-password", requireAuth, sensitiveActionRateLimit, controller.changePassword);

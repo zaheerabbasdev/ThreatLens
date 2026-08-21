@@ -48,3 +48,14 @@ export const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+export const invitationPasswordSchema = z
+  .object({
+    password: passwordRule,
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+export type InvitationPasswordInput = z.infer<typeof invitationPasswordSchema>;

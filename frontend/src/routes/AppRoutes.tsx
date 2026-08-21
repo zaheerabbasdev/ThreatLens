@@ -19,6 +19,9 @@ const ForgotPassword = lazy(() =>
 const ResetPassword = lazy(() =>
   import("@/pages/auth/ResetPassword").then((m) => ({ default: m.ResetPassword })),
 );
+const AcceptInvite = lazy(() =>
+  import("@/pages/auth/AcceptInvite").then((m) => ({ default: m.AcceptInvite })),
+);
 const VerifyEmail = lazy(() =>
   import("@/pages/auth/VerifyEmail").then((m) => ({ default: m.VerifyEmail })),
 );
@@ -82,6 +85,7 @@ export function AppRoutes() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
           </Route>
         </Route>

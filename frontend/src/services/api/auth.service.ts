@@ -39,6 +39,8 @@ function isRejectedInput(err: unknown): boolean {
 }
 
 export class ApiAuthService implements AuthService {
+  private sessionRestoreInFlight: Promise<AuthSession | null> | null = null;
+
   async login(input: LoginInput): Promise<AuthSession> {
     const body = await apiRequest<AuthResultBody>("/auth/login", { method: "POST", body: input });
     return toSession(body);
@@ -66,6 +68,10 @@ export class ApiAuthService implements AuthService {
     }
   }
 
+  acceptInvitation(input: { token: string; password: string }): Promise<{ accepted: boolean }> {
+    return apiRequest<{ accepted: boolean }>("/auth/accept-invitation", { method: "POST", body: input });
+  }
+
   async verifyEmail(token: string): Promise<{ verified: boolean }> {
     try {
       await apiRequest<{ verified: boolean }>("/auth/verify-email", { method: "POST", body: { token } });
@@ -78,13 +84,20 @@ export class ApiAuthService implements AuthService {
 
   /** Boot-time session restore: the access token lives only in memory, so a page reload has none — this exchanges the httpOnly refresh cookie the browser still holds for a fresh one. No cookie (or an expired/revoked one) means "not signed in," not an error. */
   async getSession(): Promise<AuthSession | null> {
-    try {
-      const body = await apiRequest<AuthResultBody>("/auth/refresh", { method: "POST" });
-      return toSession(body);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 404)) return null;
-      throw err;
+    if (!this.sessionRestoreInFlight) {
+      this.sessionRestoreInFlight = (async () => {
+        try {
+          const body = await apiRequest<AuthResultBody>("/auth/refresh", { method: "POST" });
+          return toSession(body);
+        } catch (err) {
+          if (err instanceof ApiError && (err.status === 401 || err.status === 404)) return null;
+          throw err;
+        } finally {
+          this.sessionRestoreInFlight = null;
+        }
+      })();
     }
+    return this.sessionRestoreInFlight;
   }
 
   async refreshSession(): Promise<AuthSession | null> {

@@ -14,6 +14,9 @@ import { Icon } from "@/components/Icon";
 import { ROLE_LABEL } from "@/constants/roles";
 import { ACCOUNT_STATUS_CONFIG, ACCOUNT_STATUS_ORDER } from "@/constants/accountStatus";
 import { formatRelativeTime } from "@/utils/format";
+import { Button } from "@/components/Button";
+import { InviteUserModal } from "./InviteUserModal";
+import { usePermission } from "@/hooks/usePermission";
 import styles from "./UsersList.module.css";
 
 const PAGE_SIZE = 10;
@@ -25,6 +28,8 @@ export function UsersList() {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<Role | "all">("all");
   const [status, setStatus] = useState<AccountStatus | "all">("all");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const canManageUsers = usePermission("users:manage");
 
   const { data, isLoading, isError } = useUsersList({
     page,
@@ -85,6 +90,7 @@ export function UsersList() {
       <PageHeader
         title="Users"
         subtitle="Everyone with access to this workspace, their role, and account status."
+        actions={canManageUsers ? <Button iconLeft="envelope" onClick={() => setInviteOpen(true)}>Invite user</Button> : undefined}
       />
 
       <div className={styles.toolbar}>
@@ -151,6 +157,8 @@ export function UsersList() {
       {data && data.total > 0 && (
         <Pagination page={page} pageSize={PAGE_SIZE} total={data.total} onPageChange={setPage} />
       )}
+
+      <InviteUserModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>
   );
 }

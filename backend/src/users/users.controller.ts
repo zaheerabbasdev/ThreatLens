@@ -9,6 +9,7 @@ import {
   updateStatusSchema,
   updateProfileSchema,
   setMfaEnabledSchema,
+  inviteUserSchema,
 } from "./users.schemas.js";
 
 export type UsersController = ReturnType<typeof createUsersController>;
@@ -27,6 +28,13 @@ export function createUsersController(service: UsersService) {
       if (!req.user) throw new UnauthorizedError();
       const user = await service.getById(req.user.organizationId, req.params["id"]!);
       sendSuccess(res, user);
+    }),
+
+    invite: asyncHandler(async (req, res) => {
+      if (!req.user) throw new UnauthorizedError();
+      const input = inviteUserSchema.parse(req.body);
+      const user = await service.invite(req.user.organizationId, input);
+      sendSuccess(res, user, undefined, 201);
     }),
 
     updateProfile: asyncHandler(async (req, res) => {

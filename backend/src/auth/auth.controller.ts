@@ -11,6 +11,7 @@ import {
   resetPasswordSchema,
   verifyEmailSchema,
   changePasswordSchema,
+  acceptInvitationSchema,
 } from "./schemas.js";
 
 const REFRESH_COOKIE = "threatlens_rt";
@@ -115,6 +116,12 @@ export function createAuthController(service: AuthService) {
       const input = verifyEmailSchema.parse(req.body);
       await service.verifyEmail(input.token);
       sendSuccess(res, { verified: true });
+    }),
+
+    acceptInvitation: asyncHandler(async (req, res) => {
+      const input = acceptInvitationSchema.parse(req.body);
+      await service.acceptInvitation(input.token, input.password);
+      sendSuccess(res, { accepted: true });
     }),
 
     changePassword: asyncHandler(async (req, res) => {

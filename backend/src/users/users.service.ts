@@ -1,15 +1,22 @@
-import { BadRequestError, ForbiddenError, NotFoundError } from "../errors/AppError.js";
+import { randomUUID } from "node:crypto";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../errors/AppError.js";
 import type { UserRepository, UserListParams } from "../repositories/user.repository.js";
 import { toPublicUser } from "../types/user.js";
 import type { PublicUser, Role, UserStatus } from "../types/user.js";
 import type { PaginatedResult } from "../types/common.js";
 import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
+import { hashPassword } from "../security/password.js";
+import { invitationTokens } from "../auth/singleUseTokenStore.js";
+import { sendInvitation } from "../auth/email.service.js";
+import type { InviteUserInput } from "./users.schemas.js";
 
 export interface UpdateProfileInput {
   name: string;
   title?: string;
 }
+
+export interface InviteUserResult extends PublicUser {}
 
 export class UsersService {
   constructor(
@@ -24,6 +31,29 @@ export class UsersService {
 
   async getById(organizationId: string, id: string): Promise<PublicUser> {
     const user = await this.getInOrg(organizationId, id);
+    return toPublicUser(user);
+  }
+
+  async invite(organizationId: string, input: InviteUserInput): Promise<InviteUserResult> {
+    const existing = await this.users.findByEmail(input.email);
+    if (existing) throw new ConflictError("An account with this email already exists.");
+
+    const user = await this.users.create({
+      organizationId,
+      name: input.name,
+      email: input.email,
+      passwordHash: await hashPassword(randomUUID()),
+      role: input.role,
+      status: "invited",
+      mfaEnabled: false,
+      emailVerifiedAt: null,
+      lastActiveAt: null,
+    });
+    invitationTokens.revokeAllFor(user.id);
+    const token = invitationTokens.issue(user.id);
+    await sendInvitation(user.email, user.name, input.role, token);
+    logger.info({ organizationId, userId: user.id, role: user.role, event: "user.invited" }, "User invited");
+    await this.recordAudit(organizationId, "system", "USER_INVITED", user.id, "info");
     return toPublicUser(user);
   }
 
@@ -111,7 +141,7 @@ export class UsersService {
   private async recordAudit(
     organizationId: string,
     actorId: string,
-    action: "PROFILE_UPDATED" | "MFA_CHANGED" | "ROLE_CHANGED" | "USER_STATUS_CHANGED",
+    action: "PROFILE_UPDATED" | "MFA_CHANGED" | "ROLE_CHANGED" | "USER_STATUS_CHANGED" | "USER_INVITED",
     targetId: string,
     severity: "info" | "medium" = "info",
   ): Promise<void> {

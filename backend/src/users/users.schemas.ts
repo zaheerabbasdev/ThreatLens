@@ -32,3 +32,10 @@ export const setMfaEnabledSchema = z.object({
   enabled: z.boolean(),
 });
 export type SetMfaEnabledInput = z.infer<typeof setMfaEnabledSchema>;
+
+export const inviteUserSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  role: z.enum(["security_admin", "security_analyst", "viewer"]),
+});
+export type InviteUserInput = z.infer<typeof inviteUserSchema>;

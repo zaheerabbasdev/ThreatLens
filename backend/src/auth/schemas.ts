@@ -48,6 +48,12 @@ export const verifyEmailSchema = z.object({
 });
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 
+export const acceptInvitationSchema = z.object({
+  token: z.string().min(1).max(512),
+  password: passwordRule,
+});
+export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(256),
   newPassword: passwordRule,

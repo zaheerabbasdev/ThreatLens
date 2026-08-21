@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 import { hashPassword, verifyPassword } from "../security/password.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken, TokenError } from "../security/tokens.js";
 import * as refreshTokenStore from "./refreshTokenStore.js";
-import { passwordResetTokens, emailVerificationTokens } from "./singleUseTokenStore.js";
+import { passwordResetTokens, emailVerificationTokens, invitationTokens } from "./singleUseTokenStore.js";
 import { toPublicUser } from "../types/user.js";
 import type { PublicUser, User } from "../types/user.js";
 import type { UserRepository } from "../repositories/user.repository.js";
@@ -273,6 +273,20 @@ export class AuthService {
     }
     await this.users.update(userId, { emailVerifiedAt: new Date().toISOString() });
     logger.info({ userId, event: "auth.email_verified" }, "Email verified");
+  }
+
+  async acceptInvitation(token: string, password: string): Promise<void> {
+    const userId = invitationTokens.consume(token);
+    if (!userId) throw new BadRequestError("This invitation is invalid or has expired.");
+    const user = await this.users.findById(userId);
+    if (!user || user.status !== "invited") throw new BadRequestError("This invitation is invalid or has expired.");
+    const updated = await this.users.update(userId, {
+      passwordHash: await hashPassword(password),
+      status: "active",
+      emailVerifiedAt: new Date().toISOString(),
+    });
+    if (!updated) throw new BadRequestError("This invitation is invalid or has expired.");
+    logger.info({ userId, event: "auth.invitation_accepted" }, "Invitation accepted");
   }
 }
 

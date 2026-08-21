@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { services } from "@/services";
-import type { UpdateProfileInput, UserListParams } from "@/services/user.service";
+import type { InviteUserInput, UpdateProfileInput, UserListParams } from "@/services/user.service";
 import type { AccountStatus, Role } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { queryKeys } from "./keys";
@@ -20,6 +20,16 @@ export function useUser(id: string | undefined) {
     queryKey: queryKeys.userDetail(id ?? ""),
     queryFn: () => services.users.getById(id as string),
     enabled: Boolean(id),
+  });
+}
+
+export function useInviteUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: InviteUserInput) => services.users.invite(input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.userList });
+    },
   });
 }
 
