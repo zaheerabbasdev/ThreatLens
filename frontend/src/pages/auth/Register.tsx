@@ -11,7 +11,7 @@ import { registerSchema, type RegisterInput } from "@/schemas/auth";
 import styles from "./AuthForm.module.css";
 
 export function Register() {
-  const { register: registerAccount } = useAuth();
+  const { register: registerAccount, logout } = useAuth();
   const navigate = useNavigate();
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -25,7 +25,8 @@ export function Register() {
     setSubmitError(null);
     try {
       await registerAccount(values);
-      navigate("/app/dashboard", { replace: true });
+      await logout();
+      navigate("/login", { replace: true });
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Unable to create your account.");
     }
