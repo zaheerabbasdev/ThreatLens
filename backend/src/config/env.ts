@@ -25,6 +25,7 @@ const envSchema = z.object({
   SMTP_USER: z.string().trim().optional().transform((v) => (v === "" ? undefined : v)),
   SMTP_PASSWORD: z.string().optional().transform((v) => (v === "" ? undefined : v)),
   SMTP_FROM: z.string().trim().optional().transform((v) => (v === "" ? undefined : v)),
+  FRONTEND_URL: z.string().url().default("http://localhost:5173"),
 
   // Optional: when unset, server.ts falls back to the in-memory repositories
   // (unchanged from Phase 3) — lets local dev run without a real database.

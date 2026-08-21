@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { ServiceUnavailableError } from "../errors/AppError.js";
 import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 
 async function sendMail(to: string, subject: string, text: string, html: string): Promise<void> {
   if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD || !env.SMTP_FROM) {
@@ -14,7 +15,14 @@ async function sendMail(to: string, subject: string, text: string, html: string)
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASSWORD },
   });
 
-  await transporter.sendMail({ from: env.SMTP_FROM, to, subject, text, html });
+  try {
+    await transporter.sendMail({ from: env.SMTP_FROM, to, subject, text, html });
+  } catch (error) {
+    logger.error({ event: "email.delivery_failed", to, subject, code: (error as { code?: string }).code }, "Email delivery failed");
+    throw new ServiceUnavailableError("Email delivery failed. Check the mail settings and try again.");
+  } finally {
+    transporter.close();
+  }
 }
 
 export async function sendPasswordResetCode(email: string, code: string): Promise<void> {
@@ -27,7 +35,7 @@ export async function sendPasswordResetCode(email: string, code: string): Promis
 }
 
 export async function sendInvitation(email: string, name: string, role: string, token: string): Promise<void> {
-  const link = `http://localhost:5173/accept-invite?token=${encodeURIComponent(token)}`;
+  const link = `${env.FRONTEND_URL.replace(/\/$/, "")}/accept-invite?token=${encodeURIComponent(token)}`;
   await sendMail(
     email,
     "You are invited to ThreatLens",
