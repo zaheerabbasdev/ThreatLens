@@ -11,11 +11,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    services.auth.getSession().then((existing) => {
-      if (cancelled) return;
-      setSession(existing);
-      setStatus(existing ? "authenticated" : "unauthenticated");
-    });
+    services.auth
+      .getSession()
+      .then((existing) => {
+        if (cancelled) return;
+        setSession(existing);
+        setStatus(existing ? "authenticated" : "unauthenticated");
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setSession(null);
+        setStatus("unauthenticated");
+        setError(error instanceof Error ? error.message : "Unable to connect to the server.");
+      });
     return () => {
       cancelled = true;
     };
