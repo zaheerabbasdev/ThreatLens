@@ -37,7 +37,8 @@ export const forgotPasswordSchema = z.object({
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(1).max(512),
+  email: emailRule,
+  code: z.string().regex(/^\d{6}$/, "Enter the six-digit reset code."),
   password: passwordRule,
 });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

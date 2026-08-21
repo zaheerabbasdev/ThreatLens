@@ -39,6 +39,7 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
 export const resetPasswordSchema = z
   .object({
+    code: z.string().regex(/^\d{6}$/, "Enter the six-digit reset code"),
     password: passwordRule,
     confirmPassword: z.string(),
   })

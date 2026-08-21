@@ -19,8 +19,6 @@ export interface ChangePasswordInput {
 
 export interface PasswordResetRequestResult {
   sent: true;
-  /** Development-only token returned when no mail provider is configured. */
-  devToken?: string;
 }
 
 /**
@@ -32,7 +30,7 @@ export interface AuthService {
   login(input: LoginInput): Promise<AuthSession>;
   register(input: RegisterInput): Promise<AuthSession>;
   requestPasswordReset(email: string): Promise<PasswordResetRequestResult>;
-  resetPassword(input: { token: string; password: string }): Promise<{ success: boolean }>;
+  resetPassword(input: { email: string; code: string; password: string }): Promise<{ success: boolean }>;
   verifyEmail(token: string): Promise<{ verified: boolean }>;
   getSession(): Promise<AuthSession | null>;
   /** Re-syncs the current session's user data from the source of truth —

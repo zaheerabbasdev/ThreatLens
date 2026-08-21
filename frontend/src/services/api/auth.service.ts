@@ -56,7 +56,7 @@ export class ApiAuthService implements AuthService {
     });
   }
 
-  async resetPassword(input: { token: string; password: string }): Promise<{ success: boolean }> {
+  async resetPassword(input: { email: string; code: string; password: string }): Promise<{ success: boolean }> {
     try {
       await apiRequest<{ success: boolean }>("/auth/reset-password", { method: "POST", body: input });
       return { success: true };

@@ -82,9 +82,9 @@ export class MockAuthService implements AuthService {
     return { sent: true };
   }
 
-  async resetPassword({ token }: { token: string; password: string }): Promise<{ success: boolean }> {
+  async resetPassword({ code }: { email: string; code: string; password: string }): Promise<{ success: boolean }> {
     await delay(undefined, 500);
-    if (token === "invalid") {
+    if (code === "invalid") {
       return { success: false };
     }
     return { success: true };

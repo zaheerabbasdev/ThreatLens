@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 
 /**
  * Backs both password-reset and email-verification tokens (spec §14: random,
@@ -27,6 +27,12 @@ export class SingleUseTokenStore {
     const token = randomBytes(32).toString("base64url");
     this.entries.set(this.digest(token), { userId, expiresAt: Date.now() + this.ttlMs });
     return token;
+  }
+
+  issueCode(userId: string): string {
+    const code = randomInt(100000, 1000000).toString();
+    this.entries.set(this.digest(code), { userId, expiresAt: Date.now() + this.ttlMs });
+    return code;
   }
 
   /** Consumes the token if valid and unexpired; returns the associated userId, or null. Always single-use — valid or not, a presented token is removed. */

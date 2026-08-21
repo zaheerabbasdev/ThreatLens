@@ -20,6 +20,12 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET must be at least 32 characters"),
 
+  SMTP_HOST: z.string().trim().optional().transform((v) => (v === "" ? undefined : v)),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USER: z.string().trim().optional().transform((v) => (v === "" ? undefined : v)),
+  SMTP_PASSWORD: z.string().optional().transform((v) => (v === "" ? undefined : v)),
+  SMTP_FROM: z.string().trim().optional().transform((v) => (v === "" ? undefined : v)),
+
   // Optional: when unset, server.ts falls back to the in-memory repositories
   // (unchanged from Phase 3) — lets local dev run without a real database.
   // When set, it must be a real mongodb:// or mongodb+srv:// URI (spec §12:

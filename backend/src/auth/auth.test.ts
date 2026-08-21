@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApp } from "../app.js";
 import { InMemoryUserRepository, seedDemoUsers } from "../repositories/user.repository.js";
@@ -6,8 +6,16 @@ import { hashPassword } from "../security/password.js";
 
 const DEMO_PASSWORD = "ThreatLens#Demo1";
 const STRONG_PASSWORD = "Str0ng!Passw0rd#1";
+let sentResetCode: string | undefined;
+
+vi.mock("./email.service.js", () => ({
+  sendPasswordResetCode: vi.fn(async (_email: string, code: string) => {
+    sentResetCode = code;
+  }),
+}));
 
 async function buildApp() {
+  sentResetCode = undefined;
   const userRepository = new InMemoryUserRepository();
   await seedDemoUsers(userRepository);
   // A suspended account, for the "correct password but inactive" path.
@@ -223,7 +231,7 @@ describe("auth", () => {
   });
 
   describe("forgot-password / reset-password", () => {
-    it("responds identically whether or not the email exists (no dev token for an unknown email)", async () => {
+    it("responds identically whether or not the email exists", async () => {
       const known = await request(app)
         .post("/api/v1/auth/forgot-password")
         .send({ email: "avery.chen@northwind.test" });
@@ -235,8 +243,7 @@ describe("auth", () => {
       expect(unknown.status).toBe(200);
       expect(known.body.data.sent).toBe(true);
       expect(unknown.body.data.sent).toBe(true);
-      expect(typeof known.body.data.devToken).toBe("string");
-      expect(unknown.body.data.devToken).toBeUndefined();
+      expect(sentResetCode).toMatch(/^\d{6}$/);
     });
 
     it("resets the password, invalidates the old one, and revokes existing sessions", async () => {
@@ -248,11 +255,12 @@ describe("auth", () => {
       const forgot = await request(app)
         .post("/api/v1/auth/forgot-password")
         .send({ email: "avery.chen@northwind.test" });
-      const { devToken } = forgot.body.data;
+      expect(forgot.body.data.sent).toBe(true);
+      expect(sentResetCode).toMatch(/^\d{6}$/);
 
       const reset = await request(app)
         .post("/api/v1/auth/reset-password")
-        .send({ token: devToken, password: STRONG_PASSWORD });
+        .send({ email: "avery.chen@northwind.test", code: sentResetCode, password: STRONG_PASSWORD });
       expect(reset.status).toBe(200);
 
       // Old session is dead.
@@ -271,10 +279,10 @@ describe("auth", () => {
       expect(newPasswordLogin.status).toBe(200);
     });
 
-    it("rejects an invalid or already-used reset token", async () => {
+    it("rejects an invalid reset code", async () => {
       const res = await request(app)
         .post("/api/v1/auth/reset-password")
-        .send({ token: "not-a-real-token", password: STRONG_PASSWORD });
+        .send({ email: "avery.chen@northwind.test", code: "000000", password: STRONG_PASSWORD });
       expect(res.status).toBe(400);
     });
   });

@@ -13,6 +13,7 @@ import { slugify } from "../repositories/organization.repository.js";
 import type { RegisterInput, LoginInput } from "./schemas.js";
 import type { AuditService } from "../audit/audit.service.js";
 import { logger } from "../utils/logger.js";
+import { sendPasswordResetCode } from "./email.service.js";
 
 /** A password hash that never validates against anything — used to keep login's response time roughly constant whether or not the email exists (spec §24: don't leak account existence through a timing side channel). */
 const DUMMY_HASH =
@@ -203,27 +204,25 @@ export class AuthService {
     return toPublicUser(user);
   }
 
-  async forgotPassword(email: string): Promise<{ devToken?: string }> {
+  async forgotPassword(email: string): Promise<{ sent: true }> {
     const user = await this.users.findByEmail(email);
     // Always resolves the same way regardless of whether the email exists,
     // so the response never leaks account existence.
-    if (!user || user.status !== "active") return {};
+    if (!user || user.status !== "active") return { sent: true };
 
     passwordResetTokens.revokeAllFor(user.id);
-    const token = passwordResetTokens.issue(user.id);
+    const code = passwordResetTokens.issueCode(user.id);
+    await sendPasswordResetCode(user.email, code);
     logger.info({ userId: user.id, event: "auth.password_reset_requested" }, "Password reset requested");
 
-    // No email provider yet (that's a later phase) — hand the token back
-    // directly in non-production so the flow is actually testable end to
-    // end. This never happens in production; there, the token simply has
-    // nowhere to go yet, which is honest about what's built versus not.
-    return env.NODE_ENV === "production" ? {} : { devToken: token };
+    return { sent: true };
   }
 
-  async resetPassword(token: string, newPassword: string): Promise<void> {
-    const userId = passwordResetTokens.consume(token);
-    if (!userId) {
-      throw new BadRequestError("This password reset link is invalid or has expired.");
+  async resetPassword(email: string, code: string, newPassword: string): Promise<void> {
+    const user = await this.users.findByEmail(email);
+    const userId = passwordResetTokens.consume(code);
+    if (!user || user.id !== userId) {
+      throw new BadRequestError("This password reset code is invalid or has expired.");
     }
     const passwordHash = await hashPassword(newPassword);
     const updated = await this.users.update(userId, { passwordHash });

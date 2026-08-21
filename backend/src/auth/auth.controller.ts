@@ -102,12 +102,12 @@ export function createAuthController(service: AuthService) {
     forgotPassword: asyncHandler(async (req, res) => {
       const input = forgotPasswordSchema.parse(req.body);
       const result = await service.forgotPassword(input.email);
-      sendSuccess(res, { sent: true, ...result });
+      sendSuccess(res, result);
     }),
 
     resetPassword: asyncHandler(async (req, res) => {
       const input = resetPasswordSchema.parse(req.body);
-      await service.resetPassword(input.token, input.password);
+      await service.resetPassword(input.email, input.code, input.password);
       sendSuccess(res, { success: true });
     }),
 
