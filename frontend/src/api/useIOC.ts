@@ -46,3 +46,15 @@ export function useSubmitIOC() {
     },
   });
 }
+
+export function useEnrichIOC() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, force = false }: { id: string; force?: boolean }) => services.ioc.enrich(id, force),
+    onSuccess: async (indicator) => {
+      queryClient.setQueryData(queryKeys.iocDetail(indicator.id), indicator);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.iocList });
+    },
+  });
+}

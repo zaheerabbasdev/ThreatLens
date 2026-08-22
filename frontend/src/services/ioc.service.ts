@@ -15,4 +15,5 @@ export interface IOCService {
   submit(input: IOCSubmissionInput): Promise<Indicator>;
   list(params?: IOCListParams): Promise<PaginatedResult<Indicator>>;
   getById(id: string): Promise<Indicator | null>;
+  enrich(id: string, force?: boolean): Promise<Indicator>;
 }

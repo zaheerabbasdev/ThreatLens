@@ -22,4 +22,11 @@ export class ApiIOCService implements IOCService {
   getById(id: string): Promise<Indicator | null> {
     return apiRequestOrNull<Indicator>(`/ioc/${id}`);
   }
+
+  enrich(id: string, force = false): Promise<Indicator> {
+    return apiRequest<Indicator>(`/ioc/${id}/enrich`, {
+      method: "POST",
+      query: force ? { force: true } : undefined,
+    });
+  }
 }

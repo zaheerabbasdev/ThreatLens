@@ -3,9 +3,10 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { Button } from "@/components/Button";
+import { AlertBanner } from "@/components/Alert";
 import { RelatedIndicatorsCard } from "@/components/RelatedIndicatorsCard";
 import { RelatedIncidentsCard } from "@/components/RelatedIncidentsCard";
-import { useIOC } from "@/api/useIOC";
+import { useEnrichIOC, useIOC } from "@/api/useIOC";
 import { formatShortId, truncateMiddle } from "@/utils/format";
 import { IndicatorHeaderCard } from "./detail/IndicatorHeaderCard";
 import { IndicatorTypeDetailsCard } from "./detail/IndicatorTypeDetailsCard";
@@ -16,6 +17,7 @@ import styles from "./IndicatorDetail.module.css";
 export function IndicatorDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: indicator, isLoading, isError } = useIOC(id);
+  const enrichIOC = useEnrichIOC();
 
   if (isLoading) {
     return (
@@ -50,7 +52,22 @@ export function IndicatorDetail() {
           { label: "IOC Overview", path: "/app/threat-intel" },
           { label: truncateMiddle(indicator.value, 24) },
         ]}
+        actions={
+          <Button
+            iconLeft="magnifying-glass-chart"
+            loading={enrichIOC.isPending}
+            onClick={() => id && enrichIOC.mutate({ id })}
+          >
+            {indicator.sources.length > 0 ? "Refresh enrichment" : "Enrich with VirusTotal"}
+          </Button>
+        }
       />
+
+      {enrichIOC.isError && (
+        <AlertBanner tone="danger" title="Enrichment failed">
+          {enrichIOC.error instanceof Error ? enrichIOC.error.message : "VirusTotal could not analyze this indicator."}
+        </AlertBanner>
+      )}
 
       <IndicatorHeaderCard indicator={indicator} />
 

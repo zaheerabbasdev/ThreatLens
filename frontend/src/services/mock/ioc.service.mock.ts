@@ -67,4 +67,11 @@ export class MockIOCService implements IOCService {
     const indicator = [...submitted, ...MOCK_INDICATORS].find((i) => i.id === id);
     return indicator ? { ...indicator } : null;
   }
+
+  async enrich(id: string): Promise<Indicator> {
+    await delay(undefined, 500);
+    const indicator = [...submitted, ...MOCK_INDICATORS].find((i) => i.id === id);
+    if (!indicator) throw new Error("The requested indicator was not found.");
+    return { ...indicator };
+  }
 }
