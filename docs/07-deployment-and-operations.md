@@ -34,7 +34,7 @@ committed file, in production):
 | `OPENAI_BASE_URL` | | defaults to `https://api.openai.com/v1`; use `https://openrouter.ai/api/v1` for OpenRouter keys |
 | `OPENAI_MODEL` | | defaults to `gpt-4o-mini` |
 | `GEMINI_API_KEY` | | preferred Gemini key; unset means OpenAI configuration is used |
-| `GEMINI_MODEL` | | defaults to `gemini-2.5-flash` |
+| `GEMINI_MODEL` | | defaults to `gemini-3.6-flash` |
 | `AI_DAILY_REQUEST_LIMIT_PER_ORG` | | defaults to `200` |
 | `VIRUSTOTAL_API_KEY` | | unset means IOC enrichment returns `503` |
 | `IOC_ENRICHMENT_STALE_AFTER_HOURS` | | defaults to `24` |

@@ -57,7 +57,7 @@ const envSchema = z.object({
     .trim()
     .optional()
     .transform((v) => (v === "" ? undefined : v)),
-  GEMINI_MODEL: z.string().trim().default("gemini-2.5-flash"),
+  GEMINI_MODEL: z.string().trim().default("gemini-3.6-flash"),
   // Cost control (spec §60) — a hard ceiling independent of the per-route
   // rate limiter, since that limits *requests*, not spend if request sizes
   // vary. Per organization, per rolling 24h window.
