@@ -56,7 +56,7 @@ function buildAIProvider(): AIProvider | null {
     logger.info("OPENAI_API_KEY not set — AI features are disabled");
     return null;
   }
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: env.OPENAI_BASE_URL });
   return new OpenAIProvider(client, env.OPENAI_MODEL);
 }
 

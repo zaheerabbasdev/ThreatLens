@@ -50,6 +50,7 @@ const envSchema = z.object({
     .trim()
     .optional()
     .transform((v) => (v === "" ? undefined : v)),
+    OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   OPENAI_MODEL: z.string().trim().default("gpt-4o-mini"),
   // Cost control (spec §60) — a hard ceiling independent of the per-route
   // rate limiter, since that limits *requests*, not spend if request sizes
