@@ -34,6 +34,7 @@ import { InMemoryAuditLogRepository } from "./repositories/auditLog.repository.j
 import { InMemoryRecommendationRepository } from "./repositories/recommendation.repository.js";
 import { InMemoryAIAnalysisRepository } from "./repositories/aiAnalysis.repository.js";
 import { OpenAIProvider } from "./ai/openaiProvider.js";
+import { GeminiProvider } from "./ai/geminiProvider.js";
 import OpenAI from "openai";
 import type { AIProvider } from "./ai/aiProvider.js";
 import { VirusTotalProvider, buildFetchHttpClient } from "./threatIntel/virusTotalProvider.js";
@@ -52,8 +53,12 @@ import { InMemoryResponseActionRepository } from "./repositories/responseAction.
  * comment for why that's different from the MongoDB fallback above).
  */
 function buildAIProvider(): AIProvider | null {
+  if (env.GEMINI_API_KEY) {
+    logger.info({ model: env.GEMINI_MODEL }, "Using Gemini AI provider");
+    return new GeminiProvider(env.GEMINI_API_KEY, env.GEMINI_MODEL);
+  }
   if (!env.OPENAI_API_KEY) {
-    logger.info("OPENAI_API_KEY not set — AI features are disabled");
+    logger.info("No Gemini or OpenAI API key set — AI features are disabled");
     return null;
   }
     const client = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: env.OPENAI_BASE_URL });

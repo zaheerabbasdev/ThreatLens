@@ -52,6 +52,12 @@ const envSchema = z.object({
     .transform((v) => (v === "" ? undefined : v)),
     OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   OPENAI_MODEL: z.string().trim().default("gpt-4o-mini"),
+  GEMINI_API_KEY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v === "" ? undefined : v)),
+  GEMINI_MODEL: z.string().trim().default("gemini-2.5-flash"),
   // Cost control (spec §60) — a hard ceiling independent of the per-route
   // rate limiter, since that limits *requests*, not spend if request sizes
   // vary. Per organization, per rolling 24h window.
